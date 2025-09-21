@@ -1,3 +1,4 @@
+
 # Global MCP Client
 
 A production-ready Python application for connecting to multiple Model Context Protocol (MCP) servers with an intelligent chatbot interface powered by AI.
@@ -389,3 +390,4 @@ You now have a fully functional Global MCP Client that can:
 ✅ Scale to support additional servers and tools  
 
 Start chatting with your MCP servers and enjoy the power of multi-server AI interactions!
+

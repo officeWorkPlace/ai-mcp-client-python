@@ -17,6 +17,7 @@ from .core import GlobalMCPClient, Config, setup_logging
 from .core.exceptions import GlobalMCPClientError
 from .utils.validators import InputValidator
 from .utils.rate_limiter import RateLimiter
+from .dynamic_orchestrator import UniversalAutoProcessor
 
 
 class GlobalMCPChatBot:
@@ -136,6 +137,8 @@ class GlobalMCPChatBot:
 [yellow]/stats[/yellow]                - Show session statistics
 [yellow]/clear[/yellow]                - Clear the screen
 [yellow]/config[/yellow]               - Show current configuration
+[yellow]/reset[/yellow]                - Reset conversation history (for better context management)
+[yellow]/analyze[/yellow]              - Run universal schema analysis (usage: /analyze <schema_name> <request>)
 [yellow]/quit[/yellow] or [yellow]/q[/yellow]     - Exit the chatbot
 
 [bold cyan]Usage Tips:[/bold cyan]
@@ -279,18 +282,97 @@ class GlobalMCPChatBot:
             self.console.clear()
         elif command == "/config":
             self.display_config()
+        elif command == "/reset":
+            if self.client:
+                self.client.reset_conversation()
+                self.console.print("[green]Conversation history reset successfully[/green]")
+            else:
+                self.console.print("[red]No client connection available[/red]")
+        elif command.startswith("/analyze"):
+            await self._handle_analyze_command(command)
         else:
             self.console.print(f"[red]Unknown command: {command}[/red]")
             self.console.print("Type [yellow]/help[/yellow] for available commands")
 
         return True
+    
+    async def _handle_analyze_command(self, command: str) -> None:
+        """Handle the /analyze command for universal schema analysis"""
+        parts = command.split(maxsplit=2)
+        
+        if len(parts) < 3:
+            self.console.print("[yellow]Usage: /analyze <schema_name> <request>[/yellow]")
+            self.console.print("[yellow]Example: /analyze my_schema give me a dashboard overview[/yellow]")
+            return
+        
+        schema_name = parts[1]
+        request = parts[2]
+        
+        if not self.client:
+            self.console.print("[red]No client connection available[/red]")
+            return
+        
+        try:
+            with self.console.status("[bold green]Running universal schema analysis..."):
+                processor = UniversalAutoProcessor(self.client)
+                result = await processor.process_request(request, schema_name)
+            
+            # Display the comprehensive result
+            analysis_panel = Panel(
+                result,
+                title="[bold blue]Universal Schema Analysis[/bold blue]",
+                border_style="blue",
+                padding=(1, 2),
+            )
+            
+            self.console.print(analysis_panel)
+            
+        except Exception as e:
+            self.console.print(f"[red]Analysis failed: {str(e)}[/red]")
+            self.logger.error(f"Universal analysis error: {e}")
+    
+    def _enhance_query_intelligence(self, query: str) -> str:
+        """Enhance queries to make AI more intelligent and proactive"""
+        query_lower = query.lower()
+        
+        # Detect comprehensive analysis patterns
+        analysis_keywords = [
+            'analyze', 'dashboard', 'comprehensive', 'overview', 'insights',
+            'metrics', 'relationships', 'structure', 'schema', 'tables'
+        ]
+        
+        # Check if this is a comprehensive analysis request
+        is_comprehensive = any(keyword in query_lower for keyword in analysis_keywords)
+        
+        if is_comprehensive:
+            # Enhance the query with intelligence instructions
+            enhanced_query = f"""{query}
 
+INTELLIGENCE ENHANCEMENT:
+1. If this involves a database schema, AUTOMATICALLY discover all tables using get_all_tables
+2. AUTOMATICALLY analyze key table structures using analyze_table_structure
+3. AUTOMATICALLY run sample queries to understand the data
+4. AUTOMATICALLY generate comprehensive dashboards and visualizations
+5. AUTOMATICALLY provide business insights and recommendations
+6. Use multiple tools to provide a complete analysis - don't ask for more details
+7. Be proactive and comprehensive
+
+PROVIDE A COMPLETE ANALYSIS WITH:
+- Schema discovery and structure
+- Key data insights and patterns
+- Multiple visualizations (charts, tables, metrics)
+- Business recommendations
+- Raw data samples where helpful"""
+            return enhanced_query
+        
+        return query
+    
     async def process_query(self, query: str) -> None:
         """
-        Process a user query
+        Process user query intelligently - let AI automatically choose appropriate tools
 
         Args:
-            query: User query
+            query: User query in natural language
         """
         if not self.client:
             self.console.print("[red]No client connection available[/red]")
@@ -309,27 +391,24 @@ class GlobalMCPChatBot:
             return
 
         self.session_stats["queries_processed"] += 1
-
+        
         try:
-            with self.console.status("[bold green]Processing your query..."):
-                response = await self.client.process_query(query)
+            # Detect comprehensive analysis requests and enhance them intelligently
+            enhanced_query = self._enhance_query_intelligence(query)
+            
+            with self.console.status("[bold green]🤖 AI is analyzing your request and selecting appropriate tools..."):
+                # Let the AI intelligently decide what tools to use
+                response = await self.client.process_query(enhanced_query)
 
-            # Display response
+            # Display intelligent response
             response_panel = Panel(
                 response,
-                title="[bold green]Response[/bold green]",
+                title="[bold green]🚀 Intelligent AI Analysis[/bold green]",
                 border_style="green",
                 padding=(1, 2),
             )
 
             self.console.print(response_panel)
-
-            # Update stats
-            if self.client:
-                total_tool_calls = sum(
-                    conn.tool_call_count for conn in self.client.connections.values()
-                )
-                self.session_stats["tools_called"] = total_tool_calls
 
         except GlobalMCPClientError as e:
             self.session_stats["errors"] += 1
@@ -341,6 +420,13 @@ class GlobalMCPChatBot:
             self.logger.error(
                 f"Unexpected error during query processing: {e}", exc_info=True
             )
+        
+        # Update stats
+        if self.client:
+            total_tool_calls = sum(
+                conn.tool_call_count for conn in self.client.connections.values()
+            )
+            self.session_stats["tools_called"] = total_tool_calls
 
     async def initialize_client(self) -> bool:
         """
@@ -429,7 +515,10 @@ class GlobalMCPChatBot:
             # Cleanup
             if self.client:
                 self.console.print("[yellow]Cleaning up connections...[/yellow]")
-                await self.client.cleanup()
+                try:
+                    await self.client.cleanup()
+                except Exception as e:
+                    self.logger.warning(f"Error during cleanup: {e}")
 
             # Display final stats
             self.console.print()

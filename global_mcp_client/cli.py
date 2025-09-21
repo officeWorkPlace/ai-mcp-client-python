@@ -11,6 +11,7 @@ from typing import Optional
 from .core import Config, GlobalMCPClient, setup_logging
 from .chatbot import GlobalMCPChatBot
 from .utils import validate_environment, get_system_info
+from .dynamic_orchestrator import UniversalAutoProcessor
 
 
 @click.group()
@@ -281,6 +282,35 @@ def query(ctx, query: str, timeout: int):
                 traceback.print_exc()
 
     asyncio.run(execute_query())
+
+
+@cli.command(name="analyze")
+@click.argument("request")
+@click.option("--schema", "-s", required=True, help="Database schema name to analyze")
+@click.option("--timeout", "-t", type=int, default=120, help="Timeout in seconds")
+@click.pass_context
+def analyze(ctx, request: str, schema: str, timeout: int):
+    """Run a dynamic, multi-query analysis against a schema and return a dashboard-style report"""
+
+    async def run_analysis():
+        try:
+            config = Config(config_dir=ctx.obj.get("config_dir"))
+            async with GlobalMCPClient(config) as client:
+                processor = UniversalAutoProcessor(client)
+                result = await asyncio.wait_for(
+                    processor.process_request(request, schema_name=schema),
+                    timeout=timeout,
+                )
+                click.echo(result)
+        except asyncio.TimeoutError:
+            click.echo(f"[!] Analysis timed out after {timeout} seconds", err=True)
+        except Exception as e:
+            click.echo(f"[!] Error: {e}", err=True)
+            if ctx.obj.get("debug"):
+                import traceback
+                traceback.print_exc()
+
+    asyncio.run(run_analysis())
 
 
 if __name__ == "__main__":

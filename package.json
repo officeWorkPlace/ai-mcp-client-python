@@ -1,0 +1,30 @@
+{
+  "name": "global-mcp-client",
+  "version": "1.0.0",
+  "description": "A production-ready Python application for connecting to multiple Model Context Protocol (MCP) servers with an intelligent chatbot interface powered by AI",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "install-mcp-servers": "npm install -g @modelcontextprotocol/server-filesystem"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "chatbot",
+    "ai",
+    "oracle",
+    "database"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/server-filesystem": "^2025.8.21"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": ""
+  }
+}

@@ -65,6 +65,8 @@ class GlobalMCPClient(LoggerMixin):
         self.exit_stack = AsyncExitStack()
         self.is_initialized = False
         self._ai_client = None
+        self._gemini_chat = None  # Store Gemini chat session for conversation history
+        self._conversation_context = []  # Store conversation history
 
         # Validate configuration
         issues = self.config.validate()
@@ -537,7 +539,13 @@ class GlobalMCPClient(LoggerMixin):
     def _clean_schema_for_gemini(self, schema: dict) -> dict:
         """
         Clean MCP schema to be compatible with Gemini function calling
-
+        
+        Gemini has strict requirements:
+        - Only supports: type, properties, required, description, enum, items
+        - No additionalProperties, $ref, anyOf, oneOf, etc.
+        - All properties must have explicit types
+        - Schemas must be simple and well-structured
+        
         Args:
             schema: MCP tool input schema
 
@@ -545,62 +553,155 @@ class GlobalMCPClient(LoggerMixin):
             Cleaned schema compatible with Gemini
         """
         if not isinstance(schema, dict):
-            return {"type": "object"}
+            return {"type": "object", "properties": {}, "required": []}
 
         cleaned = {}
 
-        # Copy allowed fields for Gemini schemas
-        allowed_fields = {
-            "type", "properties", "required", "description",
-            "enum", "items", "minimum", "maximum", "format"
-        }
-
-        # Type mapping for Gemini compatibility
+        # Only keep fields that Gemini supports
+        allowed_fields = {"type", "properties", "required", "description", "enum", "items"}
+        
+        # Type mapping for Gemini compatibility - be more conservative
         type_mapping = {
             "object": "object",
-            "string": "string",
+            "string": "string", 
             "number": "number",
-            "integer": "integer",
+            "integer": "integer", 
             "boolean": "boolean",
             "array": "array",
-            "null": "string"  # Gemini doesn't support null, map to string
+            "null": "string",  # Gemini doesn't support null
+            # Map edge cases to safe types
+            "any": "string",
+            "mixed": "string",
+            "unknown": "string"
         }
 
-        for key, value in schema.items():
-            if key in allowed_fields:
-                if key == "type":
-                    # Map types to Gemini-compatible types
-                    if isinstance(value, str):
-                        cleaned[key] = type_mapping.get(value, "string")
-                    elif isinstance(value, list):
-                        # Handle multiple types by picking the first supported one
-                        for type_val in value:
-                            mapped_type = type_mapping.get(type_val)
-                            if mapped_type:
-                                cleaned[key] = mapped_type
-                                break
-                        else:
-                            cleaned[key] = "string"  # Default fallback
-                    else:
-                        cleaned[key] = "string"  # Default fallback
-                elif key == "properties" and isinstance(value, dict):
-                    # Recursively clean properties
-                    cleaned[key] = {
-                        prop_name: self._clean_schema_for_gemini(prop_schema)
-                        for prop_name, prop_schema in value.items()
-                    }
-                elif key == "items" and isinstance(value, dict):
-                    # Clean array item schemas
-                    cleaned[key] = self._clean_schema_for_gemini(value)
+        # Handle type field
+        if "type" in schema:
+            schema_type = schema["type"]
+            if isinstance(schema_type, str):
+                cleaned["type"] = type_mapping.get(schema_type, "string")
+            elif isinstance(schema_type, list):
+                # Pick first supported type
+                for t in schema_type:
+                    if t in type_mapping:
+                        cleaned["type"] = type_mapping[t]
+                        break
                 else:
-                    cleaned[key] = value
-
-        # Ensure we always have a type
-        if "type" not in cleaned:
+                    cleaned["type"] = "string"
+            else:
+                cleaned["type"] = "string"
+        else:
             cleaned["type"] = "object"
 
-        return cleaned
+        # Handle properties with extra validation
+        if "properties" in schema and isinstance(schema["properties"], dict):
+            cleaned["properties"] = {}
+            for prop_name, prop_schema in schema["properties"].items():
+                # Ensure property name is valid
+                if not isinstance(prop_name, str) or not prop_name.strip():
+                    continue
+                    
+                if isinstance(prop_schema, dict):
+                    cleaned_prop = self._clean_schema_for_gemini(prop_schema)
+                    # Ensure every property has a type
+                    if "type" not in cleaned_prop:
+                        cleaned_prop["type"] = "string"
+                    
+                    # Limit nested complexity for Gemini
+                    if cleaned_prop.get("type") == "object" and "properties" in cleaned_prop:
+                        # Limit nested object properties to avoid complexity
+                        nested_props = cleaned_prop["properties"]
+                        if len(nested_props) > 10:  # Limit nested properties
+                            # Keep only the first 10 properties
+                            limited_props = dict(list(nested_props.items())[:10])
+                            cleaned_prop["properties"] = limited_props
+                    
+                    cleaned["properties"][prop_name] = cleaned_prop
+                else:
+                    # Simple property, just assign string type
+                    cleaned["properties"][prop_name] = {"type": "string"}
+        elif cleaned["type"] == "object":
+            # Object type must have properties
+            cleaned["properties"] = {}
 
+        # Handle required fields
+        if "required" in schema and isinstance(schema["required"], list):
+            cleaned["required"] = [r for r in schema["required"] if isinstance(r, str)]
+        elif cleaned["type"] == "object":
+            cleaned["required"] = []
+
+        # Handle description
+        if "description" in schema and isinstance(schema["description"], str):
+            cleaned["description"] = schema["description"][:200]  # Limit length
+
+        # Handle enum
+        if "enum" in schema and isinstance(schema["enum"], list):
+            cleaned["enum"] = schema["enum"][:10]  # Limit enum values
+
+        # Handle array items
+        if "items" in schema and cleaned["type"] == "array":
+            if isinstance(schema["items"], dict):
+                cleaned["items"] = self._clean_schema_for_gemini(schema["items"])
+            else:
+                cleaned["items"] = {"type": "string"}
+
+        return cleaned
+    
+    def _validate_gemini_schema(self, schema: dict) -> bool:
+        """
+        Validate that a schema is compatible with Gemini function calling
+        
+        Args:
+            schema: Cleaned schema to validate
+            
+        Returns:
+            True if valid, False otherwise
+        """
+        if not isinstance(schema, dict):
+            return False
+            
+        # Must have type
+        if "type" not in schema:
+            return False
+            
+        # Check for supported types only
+        valid_types = {"object", "string", "number", "integer", "boolean", "array"}
+        if schema["type"] not in valid_types:
+            return False
+            
+        # If object type, must have properties
+        if schema["type"] == "object":
+            if "properties" not in schema or not isinstance(schema["properties"], dict):
+                return False
+                
+            # Validate each property recursively
+            for prop_name, prop_schema in schema["properties"].items():
+                if not isinstance(prop_schema, dict) or "type" not in prop_schema:
+                    return False
+                if prop_schema["type"] not in valid_types:
+                    return False
+                    
+        # If array type, should have items
+        if schema["type"] == "array":
+            if "items" not in schema or not isinstance(schema["items"], dict):
+                return False
+            # Validate array items
+            if "type" not in schema["items"] or schema["items"]["type"] not in valid_types:
+                return False
+                
+        # Check for any disallowed fields that might cause issues
+        disallowed_fields = {"$ref", "anyOf", "oneOf", "allOf", "additionalProperties", "patternProperties"}
+        if any(field in schema for field in disallowed_fields):
+            return False
+                
+        return True
+    
+    def reset_conversation(self) -> None:
+        """Reset the conversation history for Gemini"""
+        self._gemini_chat = None
+        self._conversation_context.clear()
+        self.logger.info("Conversation history reset")
+    
     async def process_query_with_gemini(self, query: str) -> str:
         """
         Process a query using Google Gemini (following Anthropic/OpenAI pattern)
@@ -614,32 +715,155 @@ class GlobalMCPClient(LoggerMixin):
         try:
             model = self.ai_client
 
-            # Convert MCP tools to Gemini function calling format
+            # Convert MCP tools to Gemini function calling format with filtering
             function_declarations = []
-            for tool in self.available_tools:
-                # Clean the schema to remove unsupported fields
-                clean_schema = self._clean_schema_for_gemini(tool["input_schema"])
+            
+            # Filter tools to avoid overwhelming Gemini (max 50 tools)
+            tools_to_use = self.available_tools[:50] if len(self.available_tools) > 50 else self.available_tools
+            
+            for tool in tools_to_use:
+                try:
+                    # Clean the schema to remove unsupported fields
+                    clean_schema = self._clean_schema_for_gemini(tool["input_schema"])
+                    
+                    # Validate the cleaned schema
+                    if self._validate_gemini_schema(clean_schema):
+                        function_declarations.append({
+                            "name": tool["name"],
+                            "description": tool["description"][:500],  # Limit description length
+                            "parameters": clean_schema
+                        })
+                    else:
+                        self.logger.debug(f"Skipping tool {tool['name']} due to invalid schema")
+                except Exception as e:
+                    self.logger.debug(f"Failed to process tool {tool['name']}: {e}")
 
-                function_declarations.append({
-                    "name": tool["name"],
-                    "description": tool["description"],
-                    "parameters": clean_schema
-                })
+            # Build comprehensive context about the MCP environment
+            server_info = self.get_server_info()
+            system_context = f"""
+You are an advanced intelligent AI assistant with access to a powerful Model Context Protocol (MCP) client that connects to multiple specialized servers. You are designed to be proactive, intelligent, and automatically discover what users need without asking for clarification.
 
-            # Start a chat session for multi-turn conversation
+CURRENT ENVIRONMENT:
+- Connected to {server_info['total_servers']} MCP servers: {', '.join(server_info['connected_servers'])}
+- Total available tools: {server_info['total_tools']}
+
+SERVER CAPABILITIES:
+"""
+            
+            # Add server-specific context
+            for server_name, connection in self.connections.items():
+                tool_names = [tool['name'] for tool in connection.tools]
+                system_context += f"\n• {server_name}: {len(connection.tools)} tools - {', '.join(tool_names[:5])}{'...' if len(tool_names) > 5 else ''}"
+            
+            system_context += f"""
+
+YOUR INTELLIGENT BEHAVIOR:
+1. 🧠 BE PROACTIVE: When users ask for analysis or dashboards, automatically discover schemas, tables, and data structure
+2. 🔍 AUTO-DISCOVER: Use get_all_tables and analyze_table_structure to understand databases before asking questions
+3. 📊 COMPREHENSIVE: For analysis requests, automatically run multiple queries and provide complete insights
+4. 🎯 INTELLIGENT: Understand user intent - "analyze X schema" means discover structure + provide insights + create visualizations
+5. 🚀 ACTION-ORIENTED: Don't ask for clarification - take intelligent action based on available tools
+
+SPECIFIC INTELLIGENCE FOR DATABASE ANALYSIS:
+- When users mention a schema (like "C##loan_schema"), immediately use get_all_tables to discover all tables
+- Automatically analyze table structures with analyze_table_structure for key tables
+- Run sample queries to understand data patterns and relationships
+- Generate comprehensive dashboards with multiple visualizations
+- Provide business insights based on discovered data patterns
+
+TOOL USAGE INTELLIGENCE:
+- Oracle DB tools: Use for database discovery, analysis, and dashboard generation
+- Filesystem tools: Use for file operations and data processing
+- Memory tools: Use for storing analysis results and insights
+
+IMPORTANT INSTRUCTIONS:
+- NEVER ask for more details when you can discover them yourself using available tools
+- ALWAYS be comprehensive - run multiple queries to provide complete analysis
+- AUTOMATICALLY discover schemas, tables, and data structure when doing analysis
+- SHOW complete tool results - users want to see actual data, not summaries
+- GENERATE multiple visualizations when creating dashboards (charts, tables, metrics)
+- BE INTELLIGENT about data relationships and business insights
+- TAKE ACTION IMMEDIATELY - be proactive, comprehensive, and solution-oriented
+"""
+
+            # Start or continue chat session for multi-turn conversation
             if function_declarations:
                 tools = [{"function_declarations": function_declarations}]
-                chat = model.start_chat()
-
-                # First response from Gemini
-                response = chat.send_message(
-                    query,
-                    tools=tools,
-                    generation_config=genai.types.GenerationConfig(
-                        temperature=self.config.temperature,
-                        max_output_tokens=self.config.max_tokens,
+                
+                # Initialize chat session if it doesn't exist
+                if self._gemini_chat is None:
+                    self._gemini_chat = model.start_chat()
+                    # Send system context as first message
+                    system_message = f"{system_context}\n\nPlease acknowledge that you understand your role and capabilities."
+                    try:
+                        self._gemini_chat.send_message(
+                            system_message,
+                            tools=tools,
+                            generation_config=genai.types.GenerationConfig(
+                                temperature=self.config.temperature,
+                                max_output_tokens=self.config.max_tokens,
+                            )
+                        )
+                    except Exception as e:
+                        self.logger.warning(f"Failed to send system message: {e}")
+                
+                try:
+                    # Send user query with conversation context
+                    response = self._gemini_chat.send_message(
+                        query,
+                        tools=tools,
+                        generation_config=genai.types.GenerationConfig(
+                            temperature=self.config.temperature,
+                            max_output_tokens=self.config.max_tokens,
+                        )
                     )
-                )
+                except Exception as e:
+                    error_msg = str(e)
+                    self.logger.warning(f"Function calling failed, falling back to text-only: {error_msg}")
+                    
+                    # Check if it's a malformed function call - if so, reset and retry with simpler tools
+                    if "MALFORMED_FUNCTION_CALL" in error_msg:
+                        self.logger.info("Detected malformed function call, resetting session with simpler tools")
+                        self._gemini_chat = None
+                        
+                        # Retry with a smaller, simpler set of tools
+                        simple_tools = [{"function_declarations": function_declarations[:10]}]  # Use only first 10 tools
+                        try:
+                            self._gemini_chat = model.start_chat()
+                            response = self._gemini_chat.send_message(
+                                f"{system_context}\n\nUser Query: {query}",
+                                tools=simple_tools,
+                                generation_config=genai.types.GenerationConfig(
+                                    temperature=self.config.temperature,
+                                    max_output_tokens=self.config.max_tokens,
+                                )
+                            )
+                            # Continue with the normal processing loop
+                        except Exception as retry_error:
+                            self.logger.warning(f"Retry with simple tools also failed: {retry_error}")
+                            # Fall back to text-only
+                            self._gemini_chat = None
+                            context_query = f"{system_context}\n\nUser Query: {query}"
+                            response = model.generate_content(
+                                context_query,
+                                generation_config=genai.types.GenerationConfig(
+                                    temperature=self.config.temperature,
+                                    max_output_tokens=self.config.max_tokens,
+                                )
+                            )
+                            return response.text
+                    else:
+                        # For other errors, fall back to text-only immediately
+                        self._gemini_chat = None
+                        context_query = f"{system_context}\n\nUser Query: {query}"
+                        response = model.generate_content(
+                            context_query,
+                            generation_config=genai.types.GenerationConfig(
+                                temperature=self.config.temperature,
+                                max_output_tokens=self.config.max_tokens,
+                            )
+                        )
+                        return response.text
 
                 final_response = ""
 
@@ -666,7 +890,21 @@ class GlobalMCPClient(LoggerMixin):
                     function_responses = []
                     for function_call in function_calls:
                         tool_name = function_call.name
-                        tool_args = dict(function_call.args) if function_call.args else {}
+                        
+                        # Convert Gemini function arguments to MCP-compatible format
+                        tool_args = {}
+                        if function_call.args:
+                            for key, value in function_call.args.items():
+                                # Handle different argument types
+                                if hasattr(value, '__iter__') and not isinstance(value, (str, bytes)):
+                                    # Convert lists/arrays to strings or handle appropriately
+                                    if isinstance(value, (list, tuple)):
+                                        # Join list elements with commas for database columns
+                                        tool_args[key] = ','.join(str(v) for v in value)
+                                    else:
+                                        tool_args[key] = str(value)
+                                else:
+                                    tool_args[key] = value
 
                         self.logger.info(f"Gemini calling tool: {tool_name} with args: {tool_args}")
 
@@ -675,24 +913,33 @@ class GlobalMCPClient(LoggerMixin):
                             tool_result = await self.call_tool(tool_name, tool_args)
                             self.logger.info(f"Tool {tool_name} executed successfully")
 
+                            # Format the tool result for better display
+                            result_str = str(tool_result)
+                            
+                            # Add the raw tool result to final response for user visibility
+                            final_response += f"\n\n**Tool Result ({tool_name}):**\n```json\n{result_str}\n```\n"
+
                             function_responses.append({
                                 "function_response": {
                                     "name": tool_name,
-                                    "response": {"result": str(tool_result)}
+                                    "response": {"result": result_str}
                                 }
                             })
 
                         except Exception as tool_error:
                             self.logger.error(f"Tool execution failed for {tool_name}: {tool_error}")
+                            error_msg = str(tool_error)
+                            final_response += f"\n\n**Tool Error ({tool_name}):**\n{error_msg}\n"
+                            
                             function_responses.append({
                                 "function_response": {
                                     "name": tool_name,
-                                    "response": {"error": str(tool_error)}
+                                    "response": {"error": error_msg}
                                 }
                             })
 
                     # Send function results back to Gemini for next iteration
-                    response = chat.send_message(
+                    response = self._gemini_chat.send_message(
                         function_responses,
                         generation_config=genai.types.GenerationConfig(
                             temperature=self.config.temperature,
@@ -703,15 +950,57 @@ class GlobalMCPClient(LoggerMixin):
                 return final_response
 
             else:
-                # No tools available, regular response
-                response = model.generate_content(
-                    query,
-                    generation_config=genai.types.GenerationConfig(
-                        temperature=self.config.temperature,
-                        max_output_tokens=self.config.max_tokens,
+                # No tools available, but still provide context
+                # For no tools case, we'll still use a simple chat session for consistency
+                if self._gemini_chat is None:
+                    self._gemini_chat = model.start_chat()
+                    server_info = self.get_server_info()
+                    system_message = f"""
+You are an AI assistant integrated with a Model Context Protocol (MCP) client.
+Currently connected to {server_info['total_servers']} MCP servers: {', '.join(server_info['connected_servers'])}
+No tools are currently available, but you can still help answer questions about the connected servers.
+
+Please acknowledge that you understand your role.
+"""
+                    try:
+                        self._gemini_chat.send_message(
+                            system_message,
+                            generation_config=genai.types.GenerationConfig(
+                                temperature=self.config.temperature,
+                                max_output_tokens=self.config.max_tokens,
+                            )
+                        )
+                    except Exception as e:
+                        self.logger.warning(f"Failed to send system message: {e}")
+                
+                try:
+                    response = self._gemini_chat.send_message(
+                        query,
+                        generation_config=genai.types.GenerationConfig(
+                            temperature=self.config.temperature,
+                            max_output_tokens=self.config.max_tokens,
+                        )
                     )
-                )
-                return response.text
+                    return response.text
+                except Exception as e:
+                    self.logger.warning(f"Chat session failed, using direct generation: {e}")
+                    # Final fallback
+                    server_info = self.get_server_info()
+                    context_query = f"""
+You are an AI assistant integrated with a Model Context Protocol (MCP) client.
+Currently connected to {server_info['total_servers']} MCP servers: {', '.join(server_info['connected_servers'])}
+No tools are currently available.
+
+User Query: {query}
+"""
+                    response = model.generate_content(
+                        context_query,
+                        generation_config=genai.types.GenerationConfig(
+                            temperature=self.config.temperature,
+                            max_output_tokens=self.config.max_tokens,
+                        )
+                    )
+                    return response.text
 
         except Exception as e:
             error_msg = f"AI query processing failed: {str(e)}"
@@ -811,14 +1100,32 @@ class GlobalMCPClient(LoggerMixin):
         """Clean up all resources"""
         self.logger.info("Cleaning up Global MCP Client...")
 
-        # Close all connections
-        await self.exit_stack.aclose()
+        try:
+            # Close all connections with proper error handling
+            if hasattr(self, 'exit_stack') and self.exit_stack:
+                await self.exit_stack.aclose()
+        except Exception as e:
+            # Log cleanup errors but don't crash
+            self.logger.warning(f"Error during connection cleanup: {e}")
+            
+            # Try individual connection cleanup as fallback
+            for name, connection in self.connections.items():
+                try:
+                    if hasattr(connection.session, 'close'):
+                        await connection.session.close()
+                except Exception as conn_error:
+                    self.logger.warning(f"Error closing connection {name}: {conn_error}")
 
         # Clear state
         self.connections.clear()
         self.tool_to_server.clear()
         self.available_tools.clear()
         self.is_initialized = False
+        
+        # Reset conversation state
+        self._gemini_chat = None
+        if hasattr(self, '_conversation_context'):
+            self._conversation_context.clear()
 
         self.logger.info("Cleanup completed")
 

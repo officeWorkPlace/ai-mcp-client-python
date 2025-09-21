@@ -99,7 +99,7 @@ class MCPWebSocketServer:
             
         self.logger.info("MCP WebSocket Server stopped")
 
-    async def handle_client(self, websocket, path):
+    async def handle_client(self, websocket):
         """Handle a new WebSocket client connection"""
         client_addr = f"{websocket.remote_address[0]}:{websocket.remote_address[1]}"
         self.logger.info(f"New client connected: {client_addr}")

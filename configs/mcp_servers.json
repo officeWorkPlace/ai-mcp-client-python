@@ -1,0 +1,103 @@
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "."
+      ],
+      "description": "File system operations server",
+      "enabled": true,
+      "timeout": 30,
+      "retry_attempts": 3
+    },
+    "fetch": {
+      "command": "uvx",
+      "args": ["mcp-server-fetch"],
+      "description": "Web content fetching server",
+      "enabled": false,
+      "timeout": 30,
+      "retry_attempts": 3
+    },
+    "brave-search": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-brave-search"
+      ],
+      "description": "Brave search API server",
+      "enabled": false,
+      "timeout": 30,
+      "retry_attempts": 3,
+      "env": {
+        "BRAVE_API_KEY": "${BRAVE_API_KEY}"
+      }
+    },
+    "oracle-db": {
+      "command": "java",
+      "args": ["-jar", "G:\\Software G\\MCP\\mcp-oracledb-server\\setup\\Updated-MCP-SERVER\\mcp-oracledb-server-1.0.0-PRODUCTION.jar", "--spring.profiles.active=mcp-run"],
+      "description": "Oracle Database MCP Server - Enhanced Edition with Oracle AI Tools",
+      "enabled": true,
+      "timeout": 45,
+      "retry_attempts": 3,
+      "cwd": "G:\\Software G\\MCP\\mcp-oracledb-server\\setup\\Updated-MCP-SERVER",
+      "env": {
+        "ORACLE_HOST": "${ORACLE_HOST}",
+        "ORACLE_PORT": "${ORACLE_PORT}",
+        "ORACLE_SID": "XE",
+        "ORACLE_USERNAME": "${ORACLE_USERNAME}",
+        "ORACLE_PASSWORD": "${ORACLE_PASSWORD}",
+        "MCP_TOOLS_EXPOSURE": "public"
+      }
+    },
+    "memory": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-memory"
+      ],
+      "description": "Memory/notes management server",
+      "enabled": true,
+      "timeout": 30,
+      "retry_attempts": 3
+    },
+    "postgres": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-postgres"
+      ],
+      "description": "PostgreSQL database server",
+      "enabled": false,
+      "timeout": 30,
+      "retry_attempts": 3,
+      "env": {
+        "POSTGRES_CONNECTION_STRING": "${POSTGRES_CONNECTION_STRING}"
+      }
+    },
+    "git": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-git"
+      ],
+      "description": "Git repository operations server",
+      "enabled": false,
+      "timeout": 30,
+      "retry_attempts": 3
+    }
+  },
+  "global_settings": {
+    "max_concurrent_connections": 10,
+    "connection_timeout": 30,
+    "initialization_timeout": 10,
+    "tool_call_timeout": 60,
+    "enable_health_checks": true,
+    "health_check_interval": 300,
+    "auto_reconnect": true,
+    "max_reconnect_attempts": 3,
+    "log_tool_calls": true,
+    "validate_schemas": true
+  }
+}

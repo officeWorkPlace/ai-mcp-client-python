@@ -150,6 +150,101 @@ class Config:
         """Check if development mode is enabled"""
         return os.getenv("DEVELOPMENT_MODE", "false").lower() == "true"
 
+    # Enhanced AI Capabilities Configuration
+    @property
+    def enable_enhanced_reasoning(self) -> bool:
+        """Check if enhanced reasoning is enabled"""
+        return os.getenv("ENABLE_ENHANCED_REASONING", "true").lower() == "true"
+
+    @property
+    def reasoning_strategy(self) -> str:
+        """Get the reasoning strategy to use"""
+        return os.getenv("REASONING_STRATEGY", "adaptive")
+
+    @property
+    def enable_chain_of_thought(self) -> bool:
+        """Check if chain-of-thought reasoning is enabled"""
+        return os.getenv("ENABLE_CHAIN_OF_THOUGHT", "true").lower() == "true"
+
+    @property
+    def enable_self_consistency(self) -> bool:
+        """Check if self-consistency verification is enabled"""
+        return os.getenv("ENABLE_SELF_CONSISTENCY", "false").lower() == "true"
+
+    @property
+    def consistency_threshold(self) -> float:
+        """Get the consistency threshold for self-consistency checks"""
+        return float(os.getenv("CONSISTENCY_THRESHOLD", "0.8"))
+
+    @property
+    def max_reasoning_attempts(self) -> int:
+        """Get maximum reasoning attempts for consistency checking"""
+        return int(os.getenv("MAX_REASONING_ATTEMPTS", "3"))
+
+    # Context Management Configuration
+    @property
+    def enable_intelligent_context(self) -> bool:
+        """Check if intelligent context management is enabled"""
+        return os.getenv("ENABLE_INTELLIGENT_CONTEXT", "true").lower() == "true"
+
+    @property
+    def context_optimization_level(self) -> str:
+        """Get context optimization level (low, medium, high)"""
+        return os.getenv("CONTEXT_OPTIMIZATION_LEVEL", "medium")
+
+    @property
+    def semantic_similarity_threshold(self) -> float:
+        """Get semantic similarity threshold for context relevance"""
+        return float(os.getenv("SEMANTIC_SIMILARITY_THRESHOLD", "0.7"))
+
+    @property
+    def max_context_messages(self) -> int:
+        """Get maximum number of context messages to retain"""
+        return int(os.getenv("MAX_CONTEXT_MESSAGES", "20"))
+
+    # Quality Enhancement Configuration
+    @property
+    def enable_quality_optimization(self) -> bool:
+        """Check if response quality optimization is enabled"""
+        return os.getenv("ENABLE_QUALITY_OPTIMIZATION", "true").lower() == "true"
+
+    @property
+    def quality_threshold(self) -> float:
+        """Get minimum quality threshold for responses"""
+        return float(os.getenv("QUALITY_THRESHOLD", "7.0"))
+
+    @property
+    def enable_response_enhancement(self) -> bool:
+        """Check if response enhancement is enabled"""
+        return os.getenv("ENABLE_RESPONSE_ENHANCEMENT", "true").lower() == "true"
+
+    @property
+    def max_enhancement_iterations(self) -> int:
+        """Get maximum enhancement iterations per response"""
+        return int(os.getenv("MAX_ENHANCEMENT_ITERATIONS", "2"))
+
+    # Metacognitive Configuration
+    @property
+    def enable_metacognition(self) -> bool:
+        """Check if metacognitive awareness is enabled"""
+        return os.getenv("ENABLE_METACOGNITION", "false").lower() == "true"
+
+    @property
+    def confidence_threshold(self) -> float:
+        """Get confidence threshold for metacognitive evaluation"""
+        return float(os.getenv("CONFIDENCE_THRESHOLD", "6.0"))
+
+    # Performance Tracking Configuration
+    @property
+    def enable_performance_tracking(self) -> bool:
+        """Check if performance tracking is enabled"""
+        return os.getenv("ENABLE_PERFORMANCE_TRACKING", "true").lower() == "true"
+
+    @property
+    def performance_history_limit(self) -> int:
+        """Get maximum number of performance records to retain"""
+        return int(os.getenv("PERFORMANCE_HISTORY_LIMIT", "1000"))
+
     def get_enabled_servers(self) -> Dict[str, MCPServerConfig]:
         """Get only enabled MCP servers"""
         return {

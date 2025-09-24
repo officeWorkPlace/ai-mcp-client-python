@@ -42,12 +42,12 @@ class GlobalMCPChatBot:
             else None
         )
 
-        # Setup logging
+        # Setup logging with reduced console noise for chat interface
         self.logger = setup_logging(
-            log_level=self.config.log_level,
+            log_level="WARNING",  # Reduce console noise for better chat experience
             log_file=self.config.log_file,
             enable_file_logging=self.config.enable_file_logging,
-            enable_console_logging=self.config.enable_console_logging,
+            enable_console_logging=False,  # Disable console logging during chat
             development_mode=self.config.development_mode,
         )
 
@@ -77,6 +77,36 @@ class GlobalMCPChatBot:
         self.console.print(panel)
         self.console.print()
 
+    def display_enhanced_ai_status(self) -> None:
+        """Display enhanced AI capabilities status"""
+        if not self.client or not hasattr(self.client, 'enhancement_components'):
+            return
+
+        enhancement_count = len(self.client.enhancement_components)
+        if enhancement_count == 0:
+            return
+
+        enhancement_text = f"""
+[bold green][AI] Enhanced AI Capabilities Active[/bold green]
+
+[cyan]Active Components ({enhancement_count}/4):[/cyan]
+- [green]Chain-of-Thought Reasoning[/green] - Advanced query understanding and structured thinking
+- [green]Intelligent Context Management[/green] - Optimized conversation and tool selection
+- [green]Response Quality Optimization[/green] - Multi-dimensional response enhancement
+- [green]Performance Tracking[/green] - Real-time monitoring and analytics
+
+[yellow]Your queries will be processed with enhanced understanding and reasoning![/yellow]
+        """
+
+        panel = Panel(
+            enhancement_text,
+            title="[bold magenta]AI Enhancements[/bold magenta]",
+            border_style="magenta",
+            padding=(0, 1)
+        )
+
+        self.console.print(panel)
+
     def display_server_info(self) -> None:
         """Display connected servers and available tools"""
         if not self.client:
@@ -100,30 +130,25 @@ class GlobalMCPChatBot:
         self.console.print(servers_table)
         self.console.print()
 
-        # Tools table
+        # Tools summary - cleaner display
         if info["available_tools"]:
-            tools_table = Table(title="Available Tools")
-            tools_table.add_column("Tool Name", style="cyan")
-            tools_table.add_column("Server", style="green")
-            tools_table.add_column("Description", style="dim")
+            tool_names = [tool["name"] for tool in info["available_tools"][:5]]
+            tools_summary = f"""
+[cyan]Available Tools:[/cyan] {len(info['available_tools'])} total
 
-            for tool in info["available_tools"][:10]:  # Show first 10 tools
-                tools_table.add_row(
-                    tool["name"],
-                    tool["server"],
-                    (
-                        tool["description"][:60] + "..."
-                        if len(tool["description"]) > 60
-                        else tool["description"]
-                    ),
-                )
+[dim]Featured tools:[/dim] {', '.join(tool_names)}...
 
-            if len(info["available_tools"]) > 10:
-                tools_table.add_row(
-                    "...", "...", f"and {len(info['available_tools']) - 10} more tools"
-                )
+[yellow]Use /tools to see the complete list or just ask me what you need![/yellow]
+            """
 
-            self.console.print(tools_table)
+            tools_panel = Panel(
+                tools_summary,
+                title="[bold cyan]Tools Summary[/bold cyan]",
+                border_style="cyan",
+                padding=(0, 1)
+            )
+
+            self.console.print(tools_panel)
             self.console.print()
 
     def display_help(self) -> None:
@@ -211,11 +236,11 @@ class GlobalMCPChatBot:
         stats_text = f"""
 [bold]Session Statistics:[/bold]
 
-• Queries Processed: {self.session_stats['queries_processed']}
-• Tools Called: {self.session_stats['tools_called']}
-• Errors: {self.session_stats['errors']}
-• Session Duration: {duration_str}
-• Success Rate: {((self.session_stats['queries_processed'] - self.session_stats['errors']) / max(1, self.session_stats['queries_processed']) * 100):.1f}%
+- Queries Processed: {self.session_stats['queries_processed']}
+- Tools Called: {self.session_stats['tools_called']}
+- Errors: {self.session_stats['errors']}
+- Session Duration: {duration_str}
+- Success Rate: {((self.session_stats['queries_processed'] - self.session_stats['errors']) / max(1, self.session_stats['queries_processed']) * 100):.1f}%
         """
 
         panel = Panel(
@@ -396,14 +421,14 @@ PROVIDE A COMPLETE ANALYSIS WITH:
             # Detect comprehensive analysis requests and enhance them intelligently
             enhanced_query = self._enhance_query_intelligence(query)
             
-            with self.console.status("[bold green]🤖 AI is analyzing your request and selecting appropriate tools..."):
+            with self.console.status("[bold green]Enhanced AI is analyzing your request and selecting appropriate tools..."):
                 # Let the AI intelligently decide what tools to use
                 response = await self.client.process_query(enhanced_query)
 
             # Display intelligent response
             response_panel = Panel(
                 response,
-                title="[bold green]🚀 Intelligent AI Analysis[/bold green]",
+                title="[bold green][AI] Enhanced AI Response[/bold green]",
                 border_style="green",
                 padding=(1, 2),
             )
@@ -451,24 +476,40 @@ PROVIDE A COMPLETE ANALYSIS WITH:
             return False
 
     async def chat_loop(self) -> None:
-        """Main chat loop"""
+        """Main chat loop with improved piped input handling"""
         self.session_stats["start_time"] = time.time()
 
-        self.console.print(
-            "Type your queries or use commands (type [yellow]/help[/yellow] for help)"
-        )
-        self.console.print(
-            "Press [yellow]Ctrl+C[/yellow] or type [yellow]/quit[/yellow] to exit"
-        )
-        self.console.print()
+        # Check if we're receiving piped input
+        is_piped = not sys.stdin.isatty()
+
+        if not is_piped:
+            self.console.print(
+                "Type your queries or use commands (type [yellow]/help[/yellow] for help)"
+            )
+            self.console.print(
+                "Press [yellow]Ctrl+C[/yellow] or type [yellow]/quit[/yellow] to exit"
+            )
+            self.console.print()
 
         while True:
             try:
-                # Get user input
-                query = Prompt.ask("[bold cyan]Query[/bold cyan]", default="").strip()
+                if is_piped:
+                    # Handle piped input
+                    try:
+                        query = sys.stdin.readline()
+                        if not query:  # EOF
+                            break
+                        query = query.strip()
+                    except (EOFError, OSError):
+                        break
+                else:
+                    # Interactive input
+                    query = Prompt.ask("[bold cyan]Query[/bold cyan]", default="").strip()
 
                 if not query:
-                    continue
+                    if is_piped:
+                        break  # Exit on empty piped input
+                    continue  # Continue on empty interactive input
 
                 # Handle commands
                 if query.startswith("/"):
@@ -479,21 +520,30 @@ PROVIDE A COMPLETE ANALYSIS WITH:
                     # Process regular query
                     await self.process_query(query)
 
-                self.console.print()
+                if not is_piped:
+                    self.console.print()
+
+                # For piped input, process one query and exit
+                if is_piped:
+                    break
 
             except KeyboardInterrupt:
-                self.console.print(
-                    "\n[yellow]Received interrupt signal. Exiting...[/yellow]"
-                )
+                if not is_piped:
+                    self.console.print(
+                        "\n[yellow]Received interrupt signal. Exiting...[/yellow]"
+                    )
                 break
             except EOFError:
-                self.console.print("\n[yellow]EOF received. Exiting...[/yellow]")
+                if not is_piped:
+                    self.console.print("\n[yellow]EOF received. Exiting...[/yellow]")
                 break
             except Exception as e:
                 self.console.print(
                     f"[red]Unexpected error in chat loop: {str(e)}[/red]"
                 )
                 self.logger.error(f"Chat loop error: {e}", exc_info=True)
+                if is_piped:
+                    break  # Exit on error for piped input
 
     async def run(self) -> None:
         """Main entry point for the chatbot"""
@@ -508,6 +558,9 @@ PROVIDE A COMPLETE ANALYSIS WITH:
             # Display server info
             self.display_server_info()
 
+            # Display enhanced AI capabilities
+            self.display_enhanced_ai_status()
+
             # Start chat loop
             await self.chat_loop()
 
@@ -516,7 +569,16 @@ PROVIDE A COMPLETE ANALYSIS WITH:
             if self.client:
                 self.console.print("[yellow]Cleaning up connections...[/yellow]")
                 try:
-                    await self.client.cleanup()
+                    # Use asyncio.wait_for with timeout to prevent hanging
+                    await asyncio.wait_for(self.client.cleanup(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    self.logger.warning("Cleanup timed out - forcing shutdown")
+                except RuntimeError as e:
+                    if "cancel scope" in str(e) or "different task" in str(e):
+                        # This is the asyncio context issue - log but don't crash
+                        self.logger.debug(f"Asyncio context cleanup issue (safe to ignore): {e}")
+                    else:
+                        self.logger.warning(f"Runtime error during cleanup: {e}")
                 except Exception as e:
                     self.logger.warning(f"Error during cleanup: {e}")
 

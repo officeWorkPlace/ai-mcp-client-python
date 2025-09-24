@@ -154,6 +154,12 @@ class UniversalSchemaAnalyzer(LoggerMixin):
                 
                 # Step 6: Infer domain insights
                 analysis["domain_insights"] = self._infer_domain_characteristics(table_profiles)
+
+                # Step 7: Enhanced Business Intelligence Analysis
+                domain_classification = self._classify_business_domain(table_profiles)
+                analysis["business_domain"] = domain_classification
+                analysis["business_insights"] = self._generate_business_insights(table_profiles, domain_classification)
+                analysis["kpi_recommendations"] = self._generate_advanced_kpi_recommendations(table_profiles, domain_classification)
                 
         except Exception as e:
             self.logger.error(f"Error in universal schema analysis: {e}")
@@ -546,6 +552,426 @@ class UniversalSchemaAnalyzer(LoggerMixin):
             insights.append("Time-series analysis capabilities - strong temporal tracking")
         
         return insights
+
+    # Enhanced Business Intelligence Methods
+
+    def _classify_business_domain(self, table_profiles: List[TableProfile]) -> Dict[str, Any]:
+        """Advanced business domain classification with confidence scoring"""
+        domain_indicators = {
+            'financial_services': self._check_financial_patterns(table_profiles),
+            'healthcare': self._check_healthcare_patterns(table_profiles),
+            'retail_ecommerce': self._check_retail_patterns(table_profiles),
+            'manufacturing': self._check_manufacturing_patterns(table_profiles),
+            'human_resources': self._check_hr_patterns(table_profiles),
+            'education': self._check_education_patterns(table_profiles),
+            'logistics': self._check_logistics_patterns(table_profiles),
+            'real_estate': self._check_real_estate_patterns(table_profiles),
+            'telecommunications': self._check_telecom_patterns(table_profiles),
+            'government': self._check_government_patterns(table_profiles)
+        }
+
+        # Find the highest scoring domain
+        primary_domain = max(domain_indicators.items(), key=lambda x: x[1])
+
+        # Calculate confidence (how much higher than average)
+        scores = list(domain_indicators.values())
+        avg_score = sum(scores) / len(scores)
+        confidence = min(1.0, (primary_domain[1] - avg_score) / max(avg_score, 0.1))
+
+        return {
+            "primary_domain": primary_domain[0],
+            "confidence": confidence,
+            "all_scores": domain_indicators,
+            "secondary_domains": [k for k, v in sorted(domain_indicators.items(), key=lambda x: x[1], reverse=True)[1:3]]
+        }
+
+    def _check_financial_patterns(self, table_profiles: List[TableProfile]) -> float:
+        """Check for financial services patterns"""
+        score = 0.0
+        table_names = [t.name.lower() for t in table_profiles]
+        all_columns = [col.name.lower() for t in table_profiles for col in t.columns]
+
+        # Financial table patterns
+        financial_tables = ['account', 'transaction', 'payment', 'loan', 'credit', 'deposit', 'balance',
+                          'portfolio', 'investment', 'fund', 'mortgage', 'insurance', 'claim', 'policy']
+        score += sum(2.0 for pattern in financial_tables if any(pattern in name for name in table_names))
+
+        # Financial column patterns
+        financial_columns = ['account_number', 'balance', 'interest_rate', 'principal', 'payment_amount',
+                           'transaction_amount', 'credit_limit', 'apr', 'maturity_date', 'risk_rating']
+        score += sum(1.0 for pattern in financial_columns if any(pattern in col for col in all_columns))
+
+        # Regulatory patterns
+        regulatory_patterns = ['compliance', 'audit', 'regulation', 'kyc', 'aml', 'sox', 'basel']
+        score += sum(1.5 for pattern in regulatory_patterns if any(pattern in name for name in table_names + all_columns))
+
+        return min(10.0, score)
+
+    def _check_healthcare_patterns(self, table_profiles: List[TableProfile]) -> float:
+        """Check for healthcare patterns"""
+        score = 0.0
+        table_names = [t.name.lower() for t in table_profiles]
+        all_columns = [col.name.lower() for t in table_profiles for col in t.columns]
+
+        # Healthcare table patterns
+        healthcare_tables = ['patient', 'doctor', 'physician', 'nurse', 'appointment', 'diagnosis',
+                           'treatment', 'medication', 'prescription', 'medical_record', 'hospital',
+                           'clinic', 'department', 'billing', 'insurance_claim']
+        score += sum(2.0 for pattern in healthcare_tables if any(pattern in name for name in table_names))
+
+        # Healthcare column patterns
+        healthcare_columns = ['patient_id', 'medical_record_number', 'diagnosis_code', 'procedure_code',
+                            'medication_name', 'dosage', 'blood_pressure', 'temperature', 'symptoms']
+        score += sum(1.0 for pattern in healthcare_columns if any(pattern in col for col in all_columns))
+
+        # Medical coding patterns
+        medical_codes = ['icd', 'cpt', 'hcpcs', 'snomed', 'loinc']
+        score += sum(2.0 for pattern in medical_codes if any(pattern in col for col in all_columns))
+
+        return min(10.0, score)
+
+    def _check_retail_patterns(self, table_profiles: List[TableProfile]) -> float:
+        """Check for retail/e-commerce patterns"""
+        score = 0.0
+        table_names = [t.name.lower() for t in table_profiles]
+        all_columns = [col.name.lower() for t in table_profiles for col in t.columns]
+
+        # Retail table patterns
+        retail_tables = ['product', 'inventory', 'order', 'customer', 'sale', 'purchase', 'supplier',
+                        'category', 'brand', 'warehouse', 'shipment', 'cart', 'checkout', 'review']
+        score += sum(2.0 for pattern in retail_tables if any(pattern in name for name in table_names))
+
+        # Retail column patterns
+        retail_columns = ['sku', 'product_id', 'price', 'cost', 'quantity_on_hand', 'reorder_level',
+                         'order_total', 'discount', 'tax_amount', 'shipping_cost', 'rating']
+        score += sum(1.0 for pattern in retail_columns if any(pattern in col for col in all_columns))
+
+        return min(10.0, score)
+
+    def _check_manufacturing_patterns(self, table_profiles: List[TableProfile]) -> float:
+        """Check for manufacturing patterns"""
+        score = 0.0
+        table_names = [t.name.lower() for t in table_profiles]
+        all_columns = [col.name.lower() for t in table_profiles for col in t.columns]
+
+        # Manufacturing table patterns
+        manufacturing_tables = ['production', 'assembly', 'part', 'component', 'material', 'machine',
+                               'workstation', 'batch', 'lot', 'quality_control', 'defect', 'maintenance']
+        score += sum(2.0 for pattern in manufacturing_tables if any(pattern in name for name in table_names))
+
+        # Manufacturing column patterns
+        manufacturing_columns = ['part_number', 'serial_number', 'batch_id', 'production_date',
+                                'quality_score', 'defect_count', 'machine_id', 'cycle_time']
+        score += sum(1.0 for pattern in manufacturing_columns if any(pattern in col for col in all_columns))
+
+        return min(10.0, score)
+
+    def _check_hr_patterns(self, table_profiles: List[TableProfile]) -> float:
+        """Check for HR patterns"""
+        score = 0.0
+        table_names = [t.name.lower() for t in table_profiles]
+        all_columns = [col.name.lower() for t in table_profiles for col in t.columns]
+
+        # HR table patterns
+        hr_tables = ['employee', 'staff', 'payroll', 'salary', 'benefit', 'department', 'position',
+                    'performance', 'review', 'training', 'attendance', 'leave', 'recruitment']
+        score += sum(2.0 for pattern in hr_tables if any(pattern in name for name in table_names))
+
+        # HR column patterns
+        hr_columns = ['employee_id', 'hire_date', 'salary', 'job_title', 'department_id',
+                     'manager_id', 'performance_rating', 'vacation_days', 'sick_leave']
+        score += sum(1.0 for pattern in hr_columns if any(pattern in col for col in all_columns))
+
+        return min(10.0, score)
+
+    def _check_education_patterns(self, table_profiles: List[TableProfile]) -> float:
+        """Check for education patterns"""
+        score = 0.0
+        table_names = [t.name.lower() for t in table_profiles]
+        all_columns = [col.name.lower() for t in table_profiles for col in t.columns]
+
+        # Education table patterns
+        education_tables = ['student', 'teacher', 'instructor', 'course', 'class', 'grade', 'enrollment',
+                           'transcript', 'degree', 'certification', 'exam', 'assignment', 'school']
+        score += sum(2.0 for pattern in education_tables if any(pattern in name for name in table_names))
+
+        # Education column patterns
+        education_columns = ['student_id', 'course_id', 'grade', 'gpa', 'credit_hours',
+                            'enrollment_date', 'graduation_date', 'major', 'transcript']
+        score += sum(1.0 for pattern in education_columns if any(pattern in col for col in all_columns))
+
+        return min(10.0, score)
+
+    def _check_logistics_patterns(self, table_profiles: List[TableProfile]) -> float:
+        """Check for logistics patterns"""
+        score = 0.0
+        table_names = [t.name.lower() for t in table_profiles]
+        all_columns = [col.name.lower() for t in table_profiles for col in t.columns]
+
+        # Logistics table patterns
+        logistics_tables = ['shipment', 'delivery', 'route', 'vehicle', 'driver', 'warehouse',
+                           'tracking', 'freight', 'carrier', 'package', 'manifest']
+        score += sum(2.0 for pattern in logistics_tables if any(pattern in name for name in table_names))
+
+        # Logistics column patterns
+        logistics_columns = ['tracking_number', 'delivery_date', 'weight', 'dimensions',
+                            'shipping_cost', 'origin', 'destination', 'carrier_id']
+        score += sum(1.0 for pattern in logistics_columns if any(pattern in col for col in all_columns))
+
+        return min(10.0, score)
+
+    def _check_real_estate_patterns(self, table_profiles: List[TableProfile]) -> float:
+        """Check for real estate patterns"""
+        score = 0.0
+        table_names = [t.name.lower() for t in table_profiles]
+        all_columns = [col.name.lower() for t in table_profiles for col in t.columns]
+
+        # Real estate table patterns
+        real_estate_tables = ['property', 'listing', 'agent', 'buyer', 'seller', 'mortgage',
+                             'appraisal', 'inspection', 'contract', 'closing']
+        score += sum(2.0 for pattern in real_estate_tables if any(pattern in name for name in table_names))
+
+        # Real estate column patterns
+        real_estate_columns = ['property_id', 'listing_price', 'square_feet', 'bedrooms', 'bathrooms',
+                              'lot_size', 'year_built', 'mls_number', 'commission']
+        score += sum(1.0 for pattern in real_estate_columns if any(pattern in col for col in all_columns))
+
+        return min(10.0, score)
+
+    def _check_telecom_patterns(self, table_profiles: List[TableProfile]) -> float:
+        """Check for telecommunications patterns"""
+        score = 0.0
+        table_names = [t.name.lower() for t in table_profiles]
+        all_columns = [col.name.lower() for t in table_profiles for col in t.columns]
+
+        # Telecom table patterns
+        telecom_tables = ['subscriber', 'account', 'service', 'plan', 'usage', 'billing',
+                         'network', 'cell_tower', 'call_detail', 'data_usage']
+        score += sum(2.0 for pattern in telecom_tables if any(pattern in name for name in table_names))
+
+        # Telecom column patterns
+        telecom_columns = ['phone_number', 'subscriber_id', 'data_usage', 'minutes_used',
+                          'roaming_charges', 'signal_strength', 'tower_id', 'bandwidth']
+        score += sum(1.0 for pattern in telecom_columns if any(pattern in col for col in all_columns))
+
+        return min(10.0, score)
+
+    def _check_government_patterns(self, table_profiles: List[TableProfile]) -> float:
+        """Check for government patterns"""
+        score = 0.0
+        table_names = [t.name.lower() for t in table_profiles]
+        all_columns = [col.name.lower() for t in table_profiles for col in t.columns]
+
+        # Government table patterns
+        government_tables = ['citizen', 'permit', 'license', 'tax', 'regulation', 'compliance',
+                            'public_record', 'voting', 'census', 'benefit', 'social_security']
+        score += sum(2.0 for pattern in government_tables if any(pattern in name for name in table_names))
+
+        # Government column patterns
+        government_columns = ['ssn', 'tax_id', 'permit_number', 'license_number', 'case_number',
+                             'filing_date', 'expiration_date', 'status', 'jurisdiction']
+        score += sum(1.0 for pattern in government_columns if any(pattern in col for col in all_columns))
+
+        return min(10.0, score)
+
+    def _generate_business_insights(self, table_profiles: List[TableProfile], domain: Dict[str, Any]) -> List[str]:
+        """Generate business-specific insights based on domain classification"""
+        insights = []
+        primary_domain = domain["primary_domain"]
+        confidence = domain["confidence"]
+
+        insights.append(f"Domain Classification: {primary_domain.replace('_', ' ').title()} (confidence: {confidence:.1%})")
+
+        if primary_domain == "financial_services":
+            insights.extend(self._generate_financial_insights(table_profiles))
+        elif primary_domain == "healthcare":
+            insights.extend(self._generate_healthcare_insights(table_profiles))
+        elif primary_domain == "retail_ecommerce":
+            insights.extend(self._generate_retail_insights(table_profiles))
+        elif primary_domain == "manufacturing":
+            insights.extend(self._generate_manufacturing_insights(table_profiles))
+        elif primary_domain == "human_resources":
+            insights.extend(self._generate_hr_insights(table_profiles))
+        else:
+            insights.extend(self._generate_generic_business_insights(table_profiles))
+
+        return insights
+
+    def _generate_financial_insights(self, table_profiles: List[TableProfile]) -> List[str]:
+        """Generate financial services specific insights"""
+        insights = []
+
+        # Look for core financial entities
+        table_names = [t.name.lower() for t in table_profiles]
+
+        if any('account' in name for name in table_names):
+            insights.append("Account management system detected - likely core banking or investment platform")
+
+        if any('transaction' in name for name in table_names):
+            insights.append("Transaction processing capabilities - consider real-time fraud detection")
+
+        if any('loan' in name for name in table_names):
+            insights.append("Lending operations present - risk assessment and compliance monitoring recommended")
+
+        if any('compliance' in name or 'audit' in name for name in table_names):
+            insights.append("Regulatory compliance framework in place - ensure reporting capabilities")
+
+        # Analyze temporal data for financial metrics
+        temporal_tables = [t for t in table_profiles if any(col.column_type == ColumnType.TEMPORAL for col in t.columns)]
+        if len(temporal_tables) > len(table_profiles) * 0.7:
+            insights.append("Strong temporal tracking - excellent for trend analysis and regulatory reporting")
+
+        return insights
+
+    def _generate_healthcare_insights(self, table_profiles: List[TableProfile]) -> List[str]:
+        """Generate healthcare specific insights"""
+        insights = []
+
+        table_names = [t.name.lower() for t in table_profiles]
+
+        if any('patient' in name for name in table_names):
+            insights.append("Patient management system - ensure HIPAA compliance and data privacy")
+
+        if any('diagnosis' in name or 'procedure' in name for name in table_names):
+            insights.append("Clinical data management - valuable for outcome analysis and quality metrics")
+
+        if any('medication' in name or 'prescription' in name for name in table_names):
+            insights.append("Pharmacy operations - drug interaction checking and dosage analysis possible")
+
+        if any('billing' in name or 'insurance' in name for name in table_names):
+            insights.append("Revenue cycle management - claims analysis and reimbursement optimization")
+
+        return insights
+
+    def _generate_retail_insights(self, table_profiles: List[TableProfile]) -> List[str]:
+        """Generate retail/e-commerce specific insights"""
+        insights = []
+
+        table_names = [t.name.lower() for t in table_profiles]
+
+        if any('inventory' in name for name in table_names):
+            insights.append("Inventory management system - stockout analysis and demand forecasting possible")
+
+        if any('customer' in name for name in table_names):
+            insights.append("Customer data available - segmentation and lifetime value analysis recommended")
+
+        if any('order' in name or 'sale' in name for name in table_names):
+            insights.append("Sales transaction data - revenue analysis and seasonal trend detection")
+
+        if any('review' in name or 'rating' in name for name in table_names):
+            insights.append("Customer feedback system - sentiment analysis and product improvement insights")
+
+        return insights
+
+    def _generate_manufacturing_insights(self, table_profiles: List[TableProfile]) -> List[str]:
+        """Generate manufacturing specific insights"""
+        insights = []
+
+        table_names = [t.name.lower() for t in table_profiles]
+
+        if any('production' in name for name in table_names):
+            insights.append("Production management system - efficiency metrics and capacity analysis possible")
+
+        if any('quality' in name or 'defect' in name for name in table_names):
+            insights.append("Quality control data - defect analysis and process improvement opportunities")
+
+        if any('maintenance' in name for name in table_names):
+            insights.append("Maintenance tracking - predictive maintenance and downtime analysis potential")
+
+        if any('material' in name or 'component' in name for name in table_names):
+            insights.append("Supply chain data - vendor analysis and cost optimization opportunities")
+
+        return insights
+
+    def _generate_hr_insights(self, table_profiles: List[TableProfile]) -> List[str]:
+        """Generate HR specific insights"""
+        insights = []
+
+        table_names = [t.name.lower() for t in table_profiles]
+
+        if any('employee' in name for name in table_names):
+            insights.append("Employee management system - workforce analytics and retention analysis possible")
+
+        if any('performance' in name for name in table_names):
+            insights.append("Performance management data - talent development and promotion analytics")
+
+        if any('payroll' in name or 'salary' in name for name in table_names):
+            insights.append("Compensation data - pay equity analysis and budget planning capabilities")
+
+        if any('training' in name for name in table_names):
+            insights.append("Learning and development tracking - skill gap analysis and training ROI")
+
+        return insights
+
+    def _generate_generic_business_insights(self, table_profiles: List[TableProfile]) -> List[str]:
+        """Generate generic business insights when domain is unclear"""
+        insights = []
+
+        # Analyze table relationships
+        fact_tables = [t for t in table_profiles if t.table_role == TableRole.FACT]
+        dimension_tables = [t for t in table_profiles if t.table_role == TableRole.DIMENSION]
+
+        if fact_tables and dimension_tables:
+            insights.append("Star/snowflake schema pattern detected - well-structured for analytical reporting")
+
+        # Analyze data complexity
+        avg_columns = sum(len(t.columns) for t in table_profiles) / max(len(table_profiles), 1)
+        if avg_columns > 15:
+            insights.append("Complex data structure - consider data governance and documentation standards")
+
+        # Analyze temporal capabilities
+        temporal_tables = [t for t in table_profiles if any(col.column_type == ColumnType.TEMPORAL for col in t.columns)]
+        if len(temporal_tables) > len(table_profiles) * 0.5:
+            insights.append("Strong temporal data - excellent foundation for trend analysis and forecasting")
+
+        return insights
+
+    def _generate_advanced_kpi_recommendations(self, table_profiles: List[TableProfile], domain: Dict[str, Any]) -> List[Dict[str, str]]:
+        """Generate advanced KPI recommendations based on domain and data structure"""
+        recommendations = []
+        primary_domain = domain["primary_domain"]
+
+        # Domain-specific KPI recommendations
+        if primary_domain == "financial_services":
+            recommendations.extend([
+                {"kpi": "Customer Acquisition Cost", "calculation": "Total acquisition costs / New customers", "business_value": "Optimize marketing spend"},
+                {"kpi": "Net Interest Margin", "calculation": "(Interest Income - Interest Expense) / Average Earning Assets", "business_value": "Profitability measurement"},
+                {"kpi": "Credit Loss Ratio", "calculation": "Credit Losses / Total Loans", "business_value": "Risk management"},
+                {"kpi": "Cost-to-Income Ratio", "calculation": "Operating Expenses / Operating Income", "business_value": "Operational efficiency"}
+            ])
+        elif primary_domain == "retail_ecommerce":
+            recommendations.extend([
+                {"kpi": "Customer Lifetime Value", "calculation": "Average Order Value × Purchase Frequency × Customer Lifespan", "business_value": "Customer investment strategy"},
+                {"kpi": "Inventory Turnover", "calculation": "Cost of Goods Sold / Average Inventory", "business_value": "Inventory optimization"},
+                {"kpi": "Cart Abandonment Rate", "calculation": "Abandoned Carts / Total Carts", "business_value": "Conversion optimization"},
+                {"kpi": "Return on Ad Spend", "calculation": "Revenue from Ads / Ad Spend", "business_value": "Marketing effectiveness"}
+            ])
+        elif primary_domain == "manufacturing":
+            recommendations.extend([
+                {"kpi": "Overall Equipment Effectiveness", "calculation": "Availability × Performance × Quality", "business_value": "Production optimization"},
+                {"kpi": "First Pass Yield", "calculation": "Units passing first inspection / Total units produced", "business_value": "Quality control"},
+                {"kpi": "Production Efficiency", "calculation": "Actual Output / Planned Output", "business_value": "Capacity utilization"},
+                {"kpi": "Mean Time Between Failures", "calculation": "Total operating time / Number of failures", "business_value": "Maintenance planning"}
+            ])
+
+        # Generic KPIs based on data structure
+        numeric_tables = [t for t in table_profiles if any(col.column_type == ColumnType.NUMERIC_MEASURE for col in t.columns)]
+        if numeric_tables:
+            recommendations.append({
+                "kpi": "Growth Rate Analysis",
+                "calculation": "(Current Period - Previous Period) / Previous Period × 100",
+                "business_value": "Trend identification"
+            })
+
+        temporal_tables = [t for t in table_profiles if any(col.column_type == ColumnType.TEMPORAL for col in t.columns)]
+        if len(temporal_tables) > len(table_profiles) * 0.5:
+            recommendations.append({
+                "kpi": "Seasonal Variance",
+                "calculation": "Percentage deviation from baseline by time period",
+                "business_value": "Demand forecasting"
+            })
+
+        return recommendations
 
 
 class UniversalQueryOrchestrator(LoggerMixin):

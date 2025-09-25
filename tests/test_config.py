@@ -1,13 +1,18 @@
 """
-Tests for configuration management
+Cross-platform tests for configuration management
 """
 
 import pytest
 import tempfile
 import json
+import platform
 from pathlib import Path
 
-from global_mcp_client.core.config import Config, MCPServerConfig, GlobalSettings
+# Add src to path for imports
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
+from mcp_client.core.config import Config, MCPServerConfig, GlobalSettings
 
 
 class TestConfig:

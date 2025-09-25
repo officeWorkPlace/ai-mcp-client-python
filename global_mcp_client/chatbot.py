@@ -479,8 +479,54 @@ PROVIDE A COMPLETE ANALYSIS WITH:
         """Main chat loop with improved piped input handling"""
         self.session_stats["start_time"] = time.time()
 
-        # Check if we're receiving piped input
-        is_piped = not sys.stdin.isatty()
+        # Check if we're receiving piped input or in a non-interactive environment
+        try:
+            is_piped = not sys.stdin.isatty() or not sys.stdout.isatty()
+            # Additional comprehensive checks for non-interactive environments
+            import os
+
+            # Check for CI/automation environments
+            ci_indicators = ['CI', 'GITHUB_ACTIONS', 'JENKINS_URL', 'BUILDKITE', 'TRAVIS']
+            if any(os.environ.get(var) for var in ci_indicators):
+                is_piped = True
+
+            # Check for sandbox indicators
+            sandbox_indicators = ['SANDBOX', 'DOCKER', 'CONTAINER', 'CLAUDE_CODE']
+            if any(os.environ.get(var) for var in sandbox_indicators):
+                is_piped = True
+
+            # Check for automated/testing environments
+            if os.environ.get('TERM') == 'dumb' or not os.environ.get('TERM'):
+                is_piped = True
+
+            # Check if running in a subprocess or batch mode
+            if hasattr(sys, 'ps1') == False:  # Python interactive interpreter check
+                is_piped = True
+
+            # Test if stdin is actually readable with timeout
+            if not is_piped:
+                try:
+                    # Try a quick non-blocking read test
+                    import select
+                    import fcntl
+
+                    # Test if we can actually get input within reasonable time
+                    if hasattr(select, 'select'):
+                        ready, _, _ = select.select([sys.stdin], [], [], 0.1)  # 100ms timeout
+                        if not ready:
+                            # No input available immediately - likely non-interactive
+                            is_piped = True
+                except (ImportError, OSError, AttributeError):
+                    # If select/fcntl not available or fails, assume non-interactive
+                    is_piped = True
+
+            # Final fallback test
+            if not is_piped and not sys.stdin.readable():
+                is_piped = True
+
+        except (AttributeError, OSError):
+            # If any check fails, we're likely in a non-interactive environment
+            is_piped = True
 
         if not is_piped:
             self.console.print(
@@ -494,17 +540,72 @@ PROVIDE A COMPLETE ANALYSIS WITH:
         while True:
             try:
                 if is_piped:
-                    # Handle piped input
+                    # Handle piped input with timeout to prevent hanging
                     try:
-                        query = sys.stdin.readline()
-                        if not query:  # EOF
-                            break
-                        query = query.strip()
-                    except (EOFError, OSError):
+                        import select
+                        # Use select with timeout to prevent indefinite blocking
+                        if hasattr(select, 'select'):
+                            ready, _, _ = select.select([sys.stdin], [], [], 2.0)  # 2 second timeout
+                            if ready:
+                                query = sys.stdin.readline()
+                                if not query:  # EOF
+                                    self.console.print("[yellow]No input provided. Exiting chatbot.[/yellow]")
+                                    break
+                                query = query.strip()
+                            else:
+                                # Timeout - no input available
+                                self.console.print("[yellow]No input available in piped mode. Exiting.[/yellow]")
+                                break
+                        else:
+                            # Fallback for systems without select
+                            query = sys.stdin.readline()
+                            if not query:  # EOF
+                                self.console.print("[yellow]No input provided. Exiting chatbot.[/yellow]")
+                                break
+                            query = query.strip()
+                    except (EOFError, OSError, ImportError):
+                        self.console.print("[yellow]Input unavailable. Exiting chatbot.[/yellow]")
                         break
                 else:
-                    # Interactive input
-                    query = Prompt.ask("[bold cyan]Query[/bold cyan]", default="").strip()
+                    # Interactive input - with cross-platform timeout and fallback
+                    try:
+                        # Cross-platform timeout mechanism
+                        import threading
+                        import time
+
+                        query = None
+                        exception_caught = None
+
+                        def input_with_timeout():
+                            nonlocal query, exception_caught
+                            try:
+                                query = Prompt.ask("[bold cyan]Query[/bold cyan]", default="").strip()
+                            except Exception as e:
+                                exception_caught = e
+
+                        # Start input thread with timeout
+                        input_thread = threading.Thread(target=input_with_timeout)
+                        input_thread.daemon = True
+                        input_thread.start()
+                        input_thread.join(timeout=3.0)  # 3 second timeout
+
+                        if input_thread.is_alive():
+                            # Timeout occurred
+                            self.console.print("[yellow]Input timeout. Switching to non-interactive mode.[/yellow]")
+                            # Force the thread to be daemon so it doesn't block shutdown
+                            break
+                        elif exception_caught:
+                            # Exception occurred in input thread
+                            raise exception_caught
+                        elif query is None:
+                            # No input received
+                            self.console.print("[yellow]No input available. Exiting chatbot.[/yellow]")
+                            break
+
+                    except (EOFError, KeyboardInterrupt, OSError, AttributeError):
+                        # Handle EOF/interrupt from Prompt.ask() in non-interactive environments
+                        self.console.print("[yellow]No interactive input available. Exiting chatbot.[/yellow]")
+                        break
 
                 if not query:
                     if is_piped:

@@ -119,6 +119,15 @@ performance = [
     "aioredis>=2.0.0",
 ]
 
+# Security tools and scanning
+security = [
+    "safety>=3.0.0",           # Vulnerability scanning for dependencies
+    "bandit>=1.7.0",           # Security linting for Python code
+    "pip-audit>=2.6.0",        # Dependency security auditing
+    "semgrep>=1.45.0",         # Static security analysis
+    "cryptography>=41.0.0",    # Secure cryptographic operations
+]
+
 [project.scripts]
 # Main entry points
 mcp-client = "mcp_client.__main__:main"
@@ -272,3 +281,76 @@ precision = 2
 
 [tool.coverage.html]
 directory = "htmlcov"
+
+# Security scanning with bandit
+[tool.bandit]
+exclude_dirs = ["tests", "htmlcov", ".venv", "venv", "build", "dist"]
+skips = [
+    "B101",  # assert_used - asserts are ok in tests
+    "B601",  # paramiko_calls - we don't use paramiko
+]
+# Security rules to enforce
+tests = [
+    "B201",  # flask_debug_true
+    "B301",  # pickle_load
+    "B302",  # marshal_load
+    "B303",  # md5_insecure
+    "B304",  # des_insecure
+    "B305",  # cipher_insecure
+    "B306",  # mktemp_q
+    "B307",  # eval_used
+    "B308",  # mark_safe_used
+    "B309",  # httpsconnection_attribute
+    "B310",  # urllib_urlopen
+    "B311",  # random_module
+    "B312",  # telnetlib_used
+    "B313",  # xml_etree_usage
+    "B314",  # xml_sax_usage
+    "B315",  # xml_expat_usage
+    "B316",  # xml_xmlrpc_usage
+    "B317",  # xml_bad_cElementTree
+    "B318",  # xml_bad_ElementTree
+    "B319",  # xml_bad_XMLParser
+    "B320",  # xml_bad_XMLParseColumns
+    "B321",  # ftplib_used
+    "B322",  # input_used
+    "B323",  # unverified_context
+    "B324",  # hashlib_insecure
+    "B501",  # request_with_no_cert_validation
+    "B502",  # ssl_with_bad_version
+    "B503",  # ssl_with_bad_defaults
+    "B504",  # ssl_with_no_version
+    "B505",  # weak_cryptographic_key
+    "B506",  # yaml_load
+    "B507",  # ssh_no_host_key_verification
+    "B601",  # paramiko_calls
+    "B602",  # subprocess_popen_with_shell_equals_true
+    "B603",  # subprocess_without_shell_equals_true
+    "B604",  # any_other_function_with_shell_equals_true
+    "B605",  # start_process_with_a_shell
+    "B606",  # start_process_with_no_shell
+    "B607",  # start_process_with_partial_path
+    "B608",  # hardcoded_sql_expressions
+    "B609",  # linux_commands_wildcard_injection
+    "B610",  # django_extra_used
+    "B611",  # django_rawsql_used
+    "B701",  # jinja2_autoescape_false
+    "B702",  # use_of_mako_templates
+    "B703",  # django_mark_safe
+]
+
+# Safety configuration for vulnerability scanning
+[tool.safety]
+# Ignore specific vulnerabilities (add IDs as needed)
+ignore = []
+# Set minimum severity level
+output = "json"
+
+# Pip-audit configuration
+[tool.pip-audit]
+# Require hashes in requirements files
+require-hashes = false
+# Vulnerability database
+vuln-db = "pyup"
+# Output format
+output = "json"

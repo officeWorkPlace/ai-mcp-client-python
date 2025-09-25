@@ -13,11 +13,15 @@ from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from mcp_client.core.logger import setup_logging
+from mcp_client.core.logger import setup_logging, cleanup_logging
 
 
 class TestCrossPlatformLogging:
     """Test cross-platform logging functionality"""
+
+    def teardown_method(self, method):
+        """Clean up logging handlers after each test"""
+        cleanup_logging()
 
     def test_platform_detection(self):
         """Test that platform detection works correctly"""

@@ -261,12 +261,64 @@ class CalculatorServer:
                 raise ValueError(f"Dangerous keyword '{dangerous_word}' not allowed")
 
         try:
-            # Compile and evaluate the expression
-            code = compile(expression, "<string>", "eval")
-            result = eval(code, allowed_names, {})
+            # Use AST for safer evaluation instead of eval()
+            import ast
+            import operator
+
+            # Map of safe operations
+            safe_ops = {
+                ast.Add: operator.add,
+                ast.Sub: operator.sub,
+                ast.Mult: operator.mul,
+                ast.Div: operator.truediv,
+                ast.FloorDiv: operator.floordiv,
+                ast.Mod: operator.mod,
+                ast.Pow: operator.pow,
+                ast.USub: operator.neg,
+                ast.UAdd: operator.pos,
+            }
+
+            def safe_eval(node):
+                if isinstance(node, ast.Expression):
+                    return safe_eval(node.body)
+                elif isinstance(node, ast.Constant):  # Python 3.8+
+                    return node.value
+                elif isinstance(node, ast.Name):
+                    if node.id in allowed_names:
+                        return allowed_names[node.id]
+                    else:
+                        raise ValueError(f"Unknown variable: {node.id}")
+                elif isinstance(node, ast.BinOp):
+                    left = safe_eval(node.left)
+                    right = safe_eval(node.right)
+                    if type(node.op) in safe_ops:
+                        return safe_ops[type(node.op)](left, right)
+                    else:
+                        raise ValueError(f"Unsupported operation: {type(node.op).__name__}")
+                elif isinstance(node, ast.UnaryOp):
+                    operand = safe_eval(node.operand)
+                    if type(node.op) in safe_ops:
+                        return safe_ops[type(node.op)](operand)
+                    else:
+                        raise ValueError(f"Unsupported unary operation: {type(node.op).__name__}")
+                elif isinstance(node, ast.Call):
+                    if isinstance(node.func, ast.Name) and node.func.id in allowed_names:
+                        func = allowed_names[node.func.id]
+                        args = [safe_eval(arg) for arg in node.args]
+                        return func(*args)
+                    else:
+                        raise ValueError(f"Function call not allowed")
+                else:
+                    raise ValueError(f"Unsupported AST node: {type(node).__name__}")
+
+            # Parse and evaluate safely
+            tree = ast.parse(expression, mode='eval')
+            result = safe_eval(tree)
             return result
-        except Exception as e:
+        except (ValueError, SyntaxError) as e:
             raise ValueError(f"Invalid expression: {str(e)}")
+        except Exception as e:
+            raise ValueError(f"Expression evaluation failed: {str(e)}")
 
     def run(self, host: str = "localhost", port: int = 8002):
         """Run the calculator server"""

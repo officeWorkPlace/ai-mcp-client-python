@@ -113,15 +113,30 @@ class MCPChatBot:
             self.logger.error(f"Query processing error: {e}")
 
     async def chat_loop(self) -> None:
-        """Main chat loop"""
+        """Main chat loop with enhanced non-interactive environment detection"""
         self.session_stats["start_time"] = time.time()
 
-        self.console.print("Type your queries or commands (type [yellow]/help[/yellow] for help)")
-        self.console.print("Press [yellow]Ctrl+C[/yellow] or type [yellow]/quit[/yellow] to exit\n")
+        # Detect non-interactive environments
+        import os
+        is_non_interactive = self._detect_non_interactive_environment()
 
+        if not is_non_interactive:
+            self.console.print("Type your queries or commands (type [yellow]/help[/yellow] for help)")
+            self.console.print("Press [yellow]Ctrl+C[/yellow] or type [yellow]/quit[/yellow] to exit\n")
+
+        # Handle piped input or non-interactive environments
+        if is_non_interactive:
+            await self._handle_non_interactive_mode()
+            return
+
+        # Interactive mode
         while True:
             try:
-                query = Prompt.ask("[bold cyan]Query[/bold cyan]", default="").strip()
+                # Use timeout-protected input for interactive mode
+                query = await self._get_interactive_input()
+
+                if query is None:
+                    break  # Timeout or EOF occurred
 
                 if not query:
                     continue
@@ -141,6 +156,97 @@ class MCPChatBot:
             except Exception as e:
                 self.console.print(f"[red]Unexpected error: {str(e)}[/red]")
                 self.logger.error(f"Chat loop error: {e}", exc_info=True)
+                break
+
+    def _detect_non_interactive_environment(self) -> bool:
+        """Detect if we're in a non-interactive environment"""
+        import os
+
+        try:
+            # Primary check: stdin and stdout TTY status
+            stdin_is_tty = sys.stdin.isatty()
+            stdout_is_tty = sys.stdout.isatty()
+
+            # If either is not a TTY, it's likely piped/redirected input
+            if not stdin_is_tty or not stdout_is_tty:
+                return True
+
+            # Check for explicit CI/automation environments
+            ci_indicators = ['CI', 'GITHUB_ACTIONS', 'JENKINS_URL', 'BUILDKITE', 'TRAVIS']
+            if any(os.environ.get(var) for var in ci_indicators):
+                return True
+
+            # Check for explicit sandbox/container indicators
+            sandbox_indicators = ['SANDBOX', 'DOCKER', 'CONTAINER']
+            if any(os.environ.get(var) for var in sandbox_indicators):
+                return True
+
+            # Check for dumb terminal (non-interactive)
+            if os.environ.get('TERM') == 'dumb':
+                return True
+
+            # If we get here, assume interactive
+            return False
+
+        except (AttributeError, OSError):
+            # If checks fail, assume interactive (safer default)
+            return False
+
+    async def _handle_non_interactive_mode(self) -> None:
+        """Handle input in non-interactive/piped mode"""
+        self.console.print("[yellow]Running in non-interactive mode...[/yellow]")
+
+        try:
+            # Simple approach: try to read input with a short timeout using threading
+            import threading
+            query_result = {'query': None, 'done': False, 'error': None}
+
+            def read_input():
+                try:
+                    # Read from stdin - this should work for piped input
+                    line = sys.stdin.readline()
+                    query_result['query'] = line.strip() if line else None
+                except Exception as e:
+                    query_result['error'] = str(e)
+                finally:
+                    query_result['done'] = True
+
+            thread = threading.Thread(target=read_input)
+            thread.daemon = True
+            thread.start()
+            thread.join(timeout=2.0)  # 2 second timeout
+
+            if not query_result['done']:
+                self.console.print("[yellow]Input timeout - no data available.[/yellow]")
+                return
+
+            if query_result['error']:
+                self.console.print(f"[yellow]Input error: {query_result['error']}[/yellow]")
+                return
+
+            if query_result['query']:
+                self.console.print(f"[cyan]Processing: {query_result['query']}[/cyan]")
+                await self.process_query(query_result['query'])
+            else:
+                self.console.print("[yellow]No input received or empty input.[/yellow]")
+
+        except Exception as e:
+            self.console.print(f"[yellow]Non-interactive mode error: {e}[/yellow]")
+
+    async def _get_interactive_input(self) -> Optional[str]:
+        """Get input for interactive environments"""
+        try:
+            # Simple direct input for true interactive mode - no timeout needed
+            query = Prompt.ask("[bold cyan]Query[/bold cyan]", default="").strip()
+            return query
+        except (EOFError, KeyboardInterrupt):
+            # User pressed Ctrl+C or EOF
+            self.console.print("\n[yellow]Input interrupted. Exiting...[/yellow]")
+            return None
+        except Exception as e:
+            # Unexpected error
+            self.console.print(f"[red]Input error: {str(e)}[/red]")
+            return None
 
     async def run(self) -> None:
         """Main entry point"""

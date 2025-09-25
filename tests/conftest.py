@@ -55,10 +55,61 @@ def mock_env_vars(monkeypatch):
 @pytest.fixture
 def temp_log_file():
     """Create a temporary log file for cross-platform testing"""
+    import gc
+    import time
+
     with tempfile.NamedTemporaryFile(mode='w', suffix='.log', delete=False) as f:
-        yield f.name
-    # Cleanup after test
-    Path(f.name).unlink(missing_ok=True)
+        temp_file_name = f.name
+
+    yield temp_file_name
+
+    # Cross-platform cleanup with Windows file handle handling
+    try:
+        # Force garbage collection to close any open handles
+        gc.collect()
+
+        if IS_WINDOWS:
+            # On Windows, we need to be more careful about file handles
+            import logging
+            # Clear any lingering file handlers
+            for handler in logging.getLogger().handlers[:]:
+                if hasattr(handler, 'close'):
+                    handler.close()
+            # Additional small delay for Windows file system
+            time.sleep(0.1)
+
+        # Attempt cleanup
+        temp_path = Path(temp_file_name)
+        if temp_path.exists():
+            temp_path.unlink()
+
+    except (PermissionError, OSError) as e:
+        # On Windows, if file is still locked, try a few more times
+        if IS_WINDOWS:
+            import logging
+            # Remove and close all handlers
+            root_logger = logging.getLogger()
+            for handler in root_logger.handlers[:]:
+                if hasattr(handler, 'close'):
+                    handler.close()
+                root_logger.removeHandler(handler)
+
+            # Try cleanup again after a brief wait
+            for attempt in range(3):
+                time.sleep(0.2)
+                gc.collect()
+                try:
+                    temp_path = Path(temp_file_name)
+                    if temp_path.exists():
+                        temp_path.unlink()
+                    break
+                except (PermissionError, OSError):
+                    if attempt == 2:  # Last attempt
+                        # Log warning but don't fail the test
+                        print(f"Warning: Could not cleanup temp file {temp_file_name}: {e}")
+        else:
+            # On Unix systems, log warning but don't fail
+            print(f"Warning: Could not cleanup temp file {temp_file_name}: {e}")
 
 
 @pytest.fixture

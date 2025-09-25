@@ -383,7 +383,10 @@ class GlobalMCPClient(LoggerMixin):
                 self.logger.info("Using OpenAI AI client")
             elif self.config.gemini_api_key:
                 genai.configure(api_key=self.config.gemini_api_key)
-                self._ai_client = genai.GenerativeModel('gemini-1.5-flash')
+                # Use newer Gemini 2.5 models (Gemini 1.5 was retired Sept 24, 2025)
+                model_options = ["gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-2.5-pro"]
+                model_name = self.config.default_model if hasattr(self.config, 'default_model') else model_options[0]
+                self._ai_client = genai.GenerativeModel(model_name)
                 self.logger.info("Using Google Gemini AI client")
             else:
                 raise AIProviderError("No AI API key configured")

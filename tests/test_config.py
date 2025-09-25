@@ -56,6 +56,7 @@ class TestConfig:
         # Remove API keys to create validation issues
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
 
         # Use temp directory to avoid loading .env file
         monkeypatch.chdir(tmp_path)

@@ -15,11 +15,37 @@ class InputValidator:
     def __init__(self):
         # Dangerous patterns to block
         self.dangerous_patterns = [
+            # System commands
             r"(?i)\b(rm\s+-rf|del\s+/[qsf]|format\s+c:)",  # Dangerous system commands
+
+            # SQL injection patterns
             r"(?i)\b(drop\s+table|delete\s+from.*where\s+1=1)",  # Dangerous SQL
+
+            # Web security
             r"<script[^>]*>.*?</script>",  # Script tags
             r"javascript:",  # JavaScript protocol
+
+            # Python code execution
             r"(?i)\b(eval|exec)\s*\(",  # Code execution functions
+            r"(?i)\b(__import__)\s*\(",  # Import function
+            r"(?i)\b(import\s+)",  # Import statements
+            r"(?i)\bfrom\s+\w+\s+import",  # From import statements
+
+            # File operations
+            r"(?i)\bopen\s*\(",  # File opening
+            r"(?i)\b(compile|execfile)\s*\(",  # Code compilation
+
+            # OS operations
+            r"(?i)\bos\.(system|popen|spawn)",  # OS system calls
+            r"(?i)\bsubprocess\.",  # Subprocess module
+
+            # Network operations
+            r"(?i)\b(urllib|requests|socket)\.",  # Network modules
+
+            # Other dangerous patterns
+            r"(?i)\b__(globals|locals|builtins|import|exec|eval)__",  # Dangerous dunder names
+            r"(?i)\bgetattr\s*\(",  # Dynamic attribute access
+            r"(?i)\bsetattr\s*\(",  # Dynamic attribute setting
         ]
 
         # Compile patterns for efficiency

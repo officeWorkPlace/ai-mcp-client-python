@@ -610,8 +610,10 @@ class SelfEvaluationEngine:
                 nums = [float(n) for n in numbers[:3]]
                 if len(nums) >= 3 and abs(nums[0] + nums[1] - nums[2]) > max(nums) * 0.1:
                     errors.append("Potential numerical inconsistency detected")
-            except:
-                pass
+            except (ValueError, IndexError, TypeError) as e:
+                # Silently skip numerical consistency check if parsing fails
+                # This is expected behavior for non-numerical content
+                continue
 
         # Contradictory statements
         if re.search(r'\balways\b.*?\bnever\b|\bnever\b.*?\balways\b', response, re.IGNORECASE):

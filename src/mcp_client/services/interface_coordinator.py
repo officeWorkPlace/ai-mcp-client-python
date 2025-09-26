@@ -74,7 +74,7 @@ class InterfaceCoordinator:
 
     async def start_interface(self, interface_type: InterfaceType) -> bool:
         """
-        Start a specific interface
+        Start a specific interface with improved error handling
 
         Args:
             interface_type: Type of interface to start
@@ -82,19 +82,32 @@ class InterfaceCoordinator:
         Returns:
             True if started successfully, False otherwise
         """
+        # Check if interface already running
+        if interface_type in self.active_interfaces:
+            self.logger.warning(f"{interface_type.value} interface already active")
+            return True
+
         try:
-            if interface_type == InterfaceType.CHATBOT:
-                return await self._start_chatbot()
-            elif interface_type == InterfaceType.REST_API:
-                return await self._start_rest_api()
-            elif interface_type == InterfaceType.WEBSOCKET:
-                return await self._start_websocket()
-            else:
-                self.logger.error(f"Unknown interface type: {interface_type}")
-                return False
+            # Add retry logic for interface startup
+            for attempt in range(3):
+                try:
+                    if interface_type == InterfaceType.CHATBOT:
+                        return await self._start_chatbot()
+                    elif interface_type == InterfaceType.REST_API:
+                        return await self._start_rest_api()
+                    elif interface_type == InterfaceType.WEBSOCKET:
+                        return await self._start_websocket()
+                    else:
+                        self.logger.error(f"Unknown interface type: {interface_type}")
+                        return False
+                except Exception as e:
+                    self.logger.warning(f"Attempt {attempt + 1} failed for {interface_type.value}: {e}")
+                    if attempt == 2:  # Last attempt
+                        raise
+                    await asyncio.sleep(2 ** attempt)  # Exponential backoff
 
         except Exception as e:
-            self.logger.error(f"Failed to start {interface_type.value}: {e}")
+            self.logger.error(f"Failed to start {interface_type.value} after retries: {e}")
             return False
 
     async def _start_chatbot(self) -> bool:
@@ -139,11 +152,19 @@ class InterfaceCoordinator:
         # Replace REST API's client with our shared service
         self.rest_api.mcp_client = self.mcp_service.client
 
-        # Start REST API in a task
-        def run_api():
-            self.rest_api.run()
+        # Start REST API in a task with proper error handling
+        async def run_api_wrapper():
+            try:
+                # Run REST API in a thread to avoid blocking
+                await asyncio.to_thread(self.rest_api.run)
+            except Exception as e:
+                self.logger.error(f"REST API crashed: {e}")
+                # Remove from active interfaces on crash
+                if InterfaceType.REST_API in self.active_interfaces:
+                    self.active_interfaces.remove(InterfaceType.REST_API)
+                raise
 
-        task = asyncio.create_task(asyncio.to_thread(run_api))
+        task = asyncio.create_task(run_api_wrapper())
         self.tasks.append(task)
         self.active_interfaces.append(InterfaceType.REST_API)
 
@@ -207,28 +228,82 @@ class InterfaceCoordinator:
         return results
 
     async def stop_all_interfaces(self):
-        """Stop all active interfaces"""
-        # Cancel all tasks
+        """Stop all active interfaces with improved error handling"""
+        self.logger.info("Stopping all interfaces...")
+
+        # Cancel all tasks with timeout
+        cancelled_tasks = []
         for task in self.tasks:
             if not task.done():
                 task.cancel()
+                cancelled_tasks.append(task)
 
-        # Wait for tasks to complete
-        if self.tasks:
-            await asyncio.gather(*self.tasks, return_exceptions=True)
+        # Wait for tasks to complete with timeout
+        if cancelled_tasks:
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*cancelled_tasks, return_exceptions=True),
+                    timeout=10.0
+                )
+            except asyncio.TimeoutError:
+                self.logger.warning("Some tasks did not complete gracefully within timeout")
 
         # Cleanup individual interfaces
-        if self.websocket:
-            await self.websocket.stop()
+        cleanup_tasks = []
+        if self.websocket and hasattr(self.websocket, 'stop'):
+            cleanup_tasks.append(asyncio.create_task(self._safe_websocket_cleanup()))
+        if self.rest_api and hasattr(self.rest_api, 'stop'):
+            cleanup_tasks.append(asyncio.create_task(self._safe_rest_api_cleanup()))
+        if self.chatbot and hasattr(self.chatbot, 'stop'):
+            cleanup_tasks.append(asyncio.create_task(self._safe_chatbot_cleanup()))
+
+        # Wait for interface cleanups
+        if cleanup_tasks:
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*cleanup_tasks, return_exceptions=True),
+                    timeout=15.0
+                )
+            except asyncio.TimeoutError:
+                self.logger.warning("Interface cleanup timed out")
 
         # Cleanup shared MCP service
-        await self.mcp_service.cleanup()
+        try:
+            await asyncio.wait_for(self.mcp_service.cleanup(), timeout=10.0)
+        except asyncio.TimeoutError:
+            self.logger.warning("MCP service cleanup timed out")
+        except Exception as e:
+            self.logger.error(f"Error during MCP service cleanup: {e}")
 
         # Clear state
         self.tasks.clear()
         self.active_interfaces.clear()
 
         self.logger.info("All interfaces stopped")
+
+    async def _safe_websocket_cleanup(self):
+        """Safely cleanup websocket interface"""
+        try:
+            if self.websocket:
+                await self.websocket.stop()
+        except Exception as e:
+            self.logger.error(f"Error stopping websocket: {e}")
+
+    async def _safe_rest_api_cleanup(self):
+        """Safely cleanup REST API interface"""
+        try:
+            if self.rest_api and hasattr(self.rest_api, 'stop'):
+                await self.rest_api.stop()
+        except Exception as e:
+            self.logger.error(f"Error stopping REST API: {e}")
+
+    async def _safe_chatbot_cleanup(self):
+        """Safely cleanup chatbot interface"""
+        try:
+            if self.chatbot and hasattr(self.chatbot, 'stop'):
+                await self.chatbot.stop()
+        except Exception as e:
+            self.logger.error(f"Error stopping chatbot: {e}")
 
     async def run_interactive_selection(self):
         """

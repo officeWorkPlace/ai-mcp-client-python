@@ -25,18 +25,21 @@ class MCPServerConfig(BaseModel):
 
 
 class GlobalSettings(BaseModel):
-    """Global MCP client settings"""
+    """Global MCP client settings with improved defaults for reliability"""
 
-    max_concurrent_connections: int = 10
-    connection_timeout: int = 30
-    initialization_timeout: int = 10
-    tool_call_timeout: int = 60
+    max_concurrent_connections: int = 5  # Reduced to prevent resource exhaustion
+    connection_timeout: int = 45  # Increased for better reliability
+    initialization_timeout: int = 30  # Increased for complex servers
+    tool_call_timeout: int = 90  # Increased for complex queries
     enable_health_checks: bool = True
-    health_check_interval: int = 300
+    health_check_interval: int = 180  # More frequent health checks
     auto_reconnect: bool = True
-    max_reconnect_attempts: int = 3
+    max_reconnect_attempts: int = 5  # More reconnect attempts
+    reconnect_delay: float = 2.0  # Base delay between reconnects
+    max_reconnect_delay: float = 60.0  # Max delay between reconnects
     log_tool_calls: bool = True
     validate_schemas: bool = True
+    graceful_shutdown_timeout: int = 30  # Timeout for graceful shutdown
 
 
 class Config:

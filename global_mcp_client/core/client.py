@@ -5,6 +5,7 @@ Core MCP client implementation for connecting to multiple MCP servers
 import asyncio
 import json
 import time
+import warnings
 from contextlib import AsyncExitStack
 from typing import Dict, List, Optional, Any, Tuple, Union
 from pathlib import Path
@@ -16,6 +17,9 @@ import openai
 import google.generativeai as genai
 from tenacity import retry, stop_after_attempt, wait_exponential
 import structlog
+
+# Suppress the specific protobuf warning for unrecognized FinishReason enum values
+warnings.filterwarnings("ignore", message="Unrecognized FinishReason enum value.*", category=UserWarning)
 
 from .config import Config, MCPServerConfig
 from .exceptions import (
@@ -1148,9 +1152,30 @@ IMPORTANT INSTRUCTIONS:
                 except Exception as e:
                     error_msg = str(e)
                     self.logger.warning(f"Function calling failed, falling back to text-only: {error_msg}")
-                    
+
+                    # Check if it's an unrecognized finish_reason error (e.g., finish_reason: 12)
+                    if ("Unrecognized FinishReason enum value" in error_msg or
+                        "finish_reason:" in error_msg):
+                        self.logger.info("Detected unrecognized finish_reason, falling back to text-only mode")
+                        self._gemini_chat = None  # Reset session completely
+
+                        # Fallback to simple generation without function calling
+                        try:
+                            context_query = f"{system_context}\n\nUser Query: {enhanced_query}"
+                            response = model.generate_content(
+                                context_query,
+                                generation_config=genai.types.GenerationConfig(
+                                    temperature=self.config.temperature,
+                                    max_output_tokens=self.config.max_tokens,
+                                )
+                            )
+                            return response.text
+                        except Exception as fallback_error:
+                            self.logger.error(f"Text-only fallback also failed: {fallback_error}")
+                            return f"I apologize, but I'm experiencing technical difficulties with the AI service. Error details: {str(fallback_error)}"
+
                     # Check if it's a malformed function call - if so, reset and retry with simpler tools
-                    if "MALFORMED_FUNCTION_CALL" in error_msg:
+                    elif "MALFORMED_FUNCTION_CALL" in error_msg:
                         self.logger.info("Detected malformed function call, resetting session with simpler tools")
                         self._gemini_chat = None
                         
@@ -1267,13 +1292,27 @@ IMPORTANT INSTRUCTIONS:
                             })
 
                     # Send function results back to Gemini for next iteration
-                    response = self._gemini_chat.send_message(
-                        function_responses,
-                        generation_config=genai.types.GenerationConfig(
-                            temperature=self.config.temperature,
-                            max_output_tokens=self.config.max_tokens,
+                    try:
+                        response = self._gemini_chat.send_message(
+                            function_responses,
+                            generation_config=genai.types.GenerationConfig(
+                                temperature=self.config.temperature,
+                                max_output_tokens=self.config.max_tokens,
+                            )
                         )
-                    )
+                    except Exception as e:
+                        error_msg = str(e)
+                        self.logger.warning(f"Function response failed: {error_msg}")
+
+                        # Check for finish_reason error in function responses
+                        if ("Unrecognized FinishReason enum value" in error_msg or
+                            "finish_reason:" in error_msg):
+                            self.logger.info("finish_reason error in function response, returning current results")
+                            break  # Exit the loop and return what we have so far
+                        else:
+                            # Other errors, also break but log differently
+                            self.logger.warning(f"Breaking function call loop due to: {error_msg}")
+                            break
 
                 # Track tool usage for enhancements
                 tool_calls_made = []

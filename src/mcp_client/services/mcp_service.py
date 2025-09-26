@@ -62,16 +62,18 @@ class MCPService:
 
     async def initialize(self) -> bool:
         """
-        Initialize the MCP service
+        Initialize the MCP service with improved error handling
 
         Returns:
             True if successful, False otherwise
         """
-        async with self._lock:
-            if self._initialized:
-                return True
-
+        # Use wait_for to prevent indefinite blocking on lock
+        try:
+            await asyncio.wait_for(self._lock.acquire(), timeout=30.0)
             try:
+                if self._initialized:
+                    return True
+
                 self.logger.info("Initializing MCP service")
                 self._client = GlobalMCPClient(self.config)
                 await self._client.connect_to_all_servers()
@@ -83,19 +85,34 @@ class MCPService:
                 self.logger.error(f"Failed to initialize MCP service: {e}")
                 self._initialized = False
                 return False
+            finally:
+                self._lock.release()
+        except asyncio.TimeoutError:
+            self.logger.error("MCP service initialization timed out waiting for lock")
+            return False
 
     async def cleanup(self):
-        """Cleanup the MCP service"""
-        async with self._lock:
-            if self._client and self._initialized:
-                try:
-                    await self._client.cleanup()
-                    self.logger.info("MCP service cleaned up")
-                except Exception as e:
-                    self.logger.error(f"Error during MCP service cleanup: {e}")
-                finally:
-                    self._client = None
-                    self._initialized = False
+        """Cleanup the MCP service with improved error handling"""
+        try:
+            await asyncio.wait_for(self._lock.acquire(), timeout=10.0)
+            try:
+                if self._client and self._initialized:
+                    try:
+                        await asyncio.wait_for(self._client.cleanup(), timeout=15.0)
+                        self.logger.info("MCP service cleaned up")
+                    except asyncio.TimeoutError:
+                        self.logger.warning("MCP client cleanup timed out, forcing cleanup")
+                    except Exception as e:
+                        self.logger.error(f"Error during MCP service cleanup: {e}")
+                    finally:
+                        self._client = None
+                        self._initialized = False
+            finally:
+                self._lock.release()
+        except asyncio.TimeoutError:
+            self.logger.warning("Cleanup timed out waiting for lock, forcing state reset")
+            self._client = None
+            self._initialized = False
 
     async def process_query(self, query: str, context: Optional[Dict[str, Any]] = None) -> str:
         """

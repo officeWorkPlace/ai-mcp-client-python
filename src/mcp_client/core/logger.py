@@ -66,38 +66,15 @@ def setup_logging(
 
     # Cross-platform file handler with smart rotation
     if enable_file_logging and log_file:
-        log_path = Path(log_file)
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-
-        file_format = (
-            "[%(asctime)s] %(levelname)s - %(name)s:%(lineno)d - "
-            "%(funcName)s() - %(message)s"
-        )
-
         try:
-            # Use different strategies based on platform
             current_platform = platform.system()
-
-            if current_platform == "Windows":
-                # Windows: Use regular FileHandler to avoid permission issues with rotation
-                file_handler = logging.FileHandler(
-                    log_path, mode='a', encoding="utf-8"
-                )
-            else:
-                # Mac/Linux: Use RotatingFileHandler for better log management
-                file_handler = logging.handlers.RotatingFileHandler(
-                    log_path,
-                    maxBytes=10 * 1024 * 1024,  # 10MB
-                    backupCount=5,
-                    encoding="utf-8"
-                )
-
-            file_handler.setFormatter(logging.Formatter(file_format))
+            cross_platform_handler = CrossPlatformFileHandler(log_file, current_platform)
+            file_handler = cross_platform_handler.create_handler()
             handlers.append(file_handler)
 
         except (PermissionError, OSError) as e:
             # Graceful fallback for any file system issues on any platform
-            fallback_msg = f"Warning: Cannot write to log file {log_path} ({e}). Continuing with console logging only."
+            fallback_msg = f"Warning: Cannot write to log file {log_file} ({e}). Continuing with console logging only."
             if enable_console_logging:
                 print(fallback_msg)
             else:
@@ -179,6 +156,79 @@ def log_function_call(func):
             raise
 
     return wrapper
+
+
+def cleanup_logging():
+    """
+    Clean up all logging handlers - especially useful for Windows
+    to prevent file handle locks during testing
+    """
+    import gc
+
+    root_logger = logging.getLogger()
+
+    # Close and remove all handlers
+    for handler in root_logger.handlers[:]:
+        try:
+            if hasattr(handler, 'close'):
+                handler.close()
+            root_logger.removeHandler(handler)
+        except Exception as e:
+            # Log cleanup errors but don't fail
+            import sys
+            print(f"Warning: Error during logger cleanup: {e}", file=sys.stderr)
+
+    # Force garbage collection to release file handles
+    gc.collect()
+
+
+class CrossPlatformFileHandler:
+    """
+    Cross-platform file handler wrapper that manages Windows file locking issues
+    """
+
+    def __init__(self, log_path: str, current_platform: str):
+        self.log_path = Path(log_path)
+        self.current_platform = current_platform
+        self.handler = None
+
+    def create_handler(self):
+        """Create platform-appropriate file handler"""
+        file_format = (
+            "[%(asctime)s] %(levelname)s - %(name)s:%(lineno)d - "
+            "%(funcName)s() - %(message)s"
+        )
+
+        # Ensure directory exists
+        self.log_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if self.current_platform == "Windows":
+            # Windows: Use regular FileHandler to avoid permission issues with rotation
+            self.handler = logging.FileHandler(
+                self.log_path, mode='a', encoding="utf-8"
+            )
+        else:
+            # Mac/Linux: Use RotatingFileHandler for better log management
+            self.handler = logging.handlers.RotatingFileHandler(
+                self.log_path,
+                maxBytes=10 * 1024 * 1024,  # 10MB
+                backupCount=5,
+                encoding="utf-8"
+            )
+
+        self.handler.setFormatter(logging.Formatter(file_format))
+        return self.handler
+
+    def close(self):
+        """Explicitly close the file handler"""
+        if self.handler:
+            try:
+                self.handler.close()
+            except Exception as e:
+                # Log cleanup errors but don't fail
+                import sys
+                print(f"Warning: Error closing file handler: {e}", file=sys.stderr)
+            self.handler = None
 
 
 async def log_async_function_call(func):

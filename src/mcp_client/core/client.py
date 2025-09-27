@@ -398,8 +398,8 @@ class GlobalMCPClient(LoggerMixin):
         return self._ai_client
 
     @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=4, max=10),
+        stop=stop_after_attempt(5),
+        wait=wait_exponential(multiplier=1, min=2, max=30),
         reraise=True,
     )
     async def connect_to_server(
@@ -439,17 +439,21 @@ class GlobalMCPClient(LoggerMixin):
             )
             read, write = stdio_transport
 
-            # Create session with timeout
-            session = await asyncio.wait_for(
-                self.exit_stack.enter_async_context(ClientSession(read, write)),
-                timeout=self.config.global_settings.connection_timeout,
-            )
+            # Create session with timeout and retry logic
+            try:
+                session = await asyncio.wait_for(
+                    self.exit_stack.enter_async_context(ClientSession(read, write)),
+                    timeout=self.config.global_settings.connection_timeout,
+                )
 
-            # Initialize session
-            await asyncio.wait_for(
-                session.initialize(),
-                timeout=self.config.global_settings.initialization_timeout,
-            )
+                # Initialize session with longer timeout for initialization
+                await asyncio.wait_for(
+                    session.initialize(),
+                    timeout=max(self.config.global_settings.initialization_timeout, 30),
+                )
+            except asyncio.TimeoutError as e:
+                self.logger.error(f"Timeout during session setup for {name}: {e}")
+                raise TimeoutError(f"Session setup timeout for {name}") from e
 
             # List available tools
             response = await session.list_tools()
@@ -496,18 +500,24 @@ class GlobalMCPClient(LoggerMixin):
 
         self.logger.info(f"Connecting to {len(enabled_servers)} servers...")
 
-        # Connect to servers concurrently
+        # Connect to servers concurrently with staggered startup
         connection_tasks = []
-        for name, config in enabled_servers.items():
+        for i, (name, config) in enumerate(enabled_servers.items()):
+            # Stagger server connections to reduce race conditions
+            async def delayed_connect(server_name, server_config, delay):
+                if delay > 0:
+                    await asyncio.sleep(delay)
+                return await self.connect_to_server(server_name, server_config)
+
             task = asyncio.create_task(
-                self.connect_to_server(name, config), name=f"connect_{name}"
+                delayed_connect(name, config, i * 0.5), name=f"connect_{name}"
             )
             connection_tasks.append((name, task))
 
-        # Wait for all connections with individual error handling
+        # Wait for all connections with individual error handling and timeout
         for name, task in connection_tasks:
             try:
-                connection = await task
+                connection = await asyncio.wait_for(task, timeout=60.0)
                 self.connections[name] = connection
 
                 # Map tools to servers
@@ -1159,7 +1169,7 @@ IMPORTANT INSTRUCTIONS:
                         self.logger.info("Detected unrecognized finish_reason, falling back to text-only mode")
                         self._gemini_chat = None  # Reset session completely
 
-                        # Fallback to simple generation without function calling
+                        # Immediate fallback to simple generation without function calling
                         try:
                             context_query = f"{system_context}\n\nUser Query: {enhanced_query}"
                             response = model.generate_content(
@@ -1175,36 +1185,55 @@ IMPORTANT INSTRUCTIONS:
                             return f"I apologize, but I'm experiencing technical difficulties with the AI service. Error details: {str(fallback_error)}"
 
                     # Check if it's a malformed function call - if so, reset and retry with simpler tools
-                    elif "MALFORMED_FUNCTION_CALL" in error_msg:
-                        self.logger.info("Detected malformed function call, resetting session with simpler tools")
+                    elif "MALFORMED_FUNCTION_CALL" in error_msg or "INVALID_ARGUMENT" in error_msg:
+                        self.logger.info("Detected function call issue, implementing progressive fallback")
                         self._gemini_chat = None
-                        
-                        # Retry with a smaller, simpler set of tools
-                        simple_tools = [{"function_declarations": function_declarations[:10]}]  # Use only first 10 tools
-                        try:
-                            self._gemini_chat = model.start_chat()
-                            response = self._gemini_chat.send_message(
-                                f"{system_context}\n\nUser Query: {enhanced_query}",
-                                tools=simple_tools,
-                                generation_config=genai.types.GenerationConfig(
-                                    temperature=self.config.temperature,
-                                    max_output_tokens=self.config.max_tokens,
-                                )
-                            )
-                            # Continue with the normal processing loop
-                        except Exception as retry_error:
-                            self.logger.warning(f"Retry with simple tools also failed: {retry_error}")
-                            # Fall back to text-only
-                            self._gemini_chat = None
-                            context_query = f"{system_context}\n\nUser Query: {enhanced_query}"
-                            response = model.generate_content(
-                                context_query,
-                                generation_config=genai.types.GenerationConfig(
-                                    temperature=self.config.temperature,
-                                    max_output_tokens=self.config.max_tokens,
-                                )
-                            )
-                            return response.text
+
+                        # Progressive fallback: try fewer tools, then simpler tools, then no tools
+                        fallback_attempts = [
+                            function_declarations[:5],   # Try with 5 tools
+                            function_declarations[:2],   # Try with 2 tools
+                            []                           # Try with no tools
+                        ]
+
+                        for attempt, tools_subset in enumerate(fallback_attempts):
+                            try:
+                                self._gemini_chat = model.start_chat()
+                                if tools_subset:
+                                    response = self._gemini_chat.send_message(
+                                        f"{system_context}\n\nUser Query: {enhanced_query}",
+                                        tools=[{"function_declarations": tools_subset}],
+                                        generation_config=genai.types.GenerationConfig(
+                                            temperature=self.config.temperature,
+                                            max_output_tokens=self.config.max_tokens,
+                                        )
+                                    )
+                                else:
+                                    # Final fallback: no tools at all
+                                    response = self._gemini_chat.send_message(
+                                        f"{system_context}\n\nUser Query: {enhanced_query}",
+                                        generation_config=genai.types.GenerationConfig(
+                                            temperature=self.config.temperature,
+                                            max_output_tokens=self.config.max_tokens,
+                                        )
+                                    )
+
+                                self.logger.info(f"Fallback attempt {attempt + 1} succeeded")
+                                break
+                            except Exception as retry_error:
+                                self.logger.warning(f"Fallback attempt {attempt + 1} failed: {retry_error}")
+                                if attempt == len(fallback_attempts) - 1:
+                                    # Final fallback failed, use direct generation
+                                    self._gemini_chat = None
+                                    context_query = f"{system_context}\n\nUser Query: {enhanced_query}"
+                                    response = model.generate_content(
+                                        context_query,
+                                        generation_config=genai.types.GenerationConfig(
+                                            temperature=self.config.temperature,
+                                            max_output_tokens=self.config.max_tokens,
+                                        )
+                                    )
+                                    return response.text
                     else:
                         # For other errors, fall back to text-only immediately
                         self._gemini_chat = None
@@ -1498,26 +1527,34 @@ User Query: {enhanced_query}
         }
 
     async def cleanup(self) -> None:
-        """Clean up all resources with robust error handling"""
+        """Clean up all resources with robust error handling and timeouts"""
         self.logger.info("Cleaning up Global MCP Client...")
 
+        # Set cleanup timeout
+        cleanup_timeout = 30.0
+
         try:
-            # Close all connections with proper error handling
+            # Close all connections with proper error handling and timeout
             if hasattr(self, 'exit_stack') and self.exit_stack:
-                await self.exit_stack.aclose()
-        except RuntimeError as e:
-            if "cancel scope" in str(e) or "different task" in str(e):
-                # This is the asyncio context issue - try alternative cleanup
-                self.logger.debug(f"Asyncio context issue during exit_stack cleanup, using fallback: {e}")
-                await self._fallback_cleanup()
-            else:
-                raise
+                try:
+                    await asyncio.wait_for(self.exit_stack.aclose(), timeout=cleanup_timeout)
+                except asyncio.TimeoutError:
+                    self.logger.warning(f"Exit stack cleanup timed out after {cleanup_timeout}s, using fallback")
+                    await self._fallback_cleanup()
+                except RuntimeError as e:
+                    if "cancel scope" in str(e) or "different task" in str(e):
+                        # This is the asyncio context issue - try alternative cleanup
+                        self.logger.debug(f"Asyncio context issue during exit_stack cleanup, using fallback: {e}")
+                        await self._fallback_cleanup()
+                    else:
+                        self.logger.error(f"Unexpected RuntimeError during cleanup: {e}")
+                        await self._fallback_cleanup()
         except Exception as e:
             # Log cleanup errors but don't crash
             self.logger.warning(f"Error during connection cleanup: {e}")
             await self._fallback_cleanup()
 
-        # Clear state
+        # Clear state immediately to prevent further issues
         self.connections.clear()
         self.tool_to_server.clear()
         self.available_tools.clear()
@@ -1528,17 +1565,37 @@ User Query: {enhanced_query}
         if hasattr(self, '_conversation_context'):
             self._conversation_context.clear()
 
-        self.logger.info("Cleanup completed")
+        self.logger.info("Cleanup completed successfully")
 
     async def _fallback_cleanup(self) -> None:
         """Fallback cleanup method for when exit_stack fails"""
+        self.logger.info("Using fallback cleanup method")
+
         # Try individual connection cleanup as fallback
-        for name, connection in self.connections.items():
+        cleanup_tasks = []
+        for name, connection in list(self.connections.items()):
+            async def cleanup_connection(conn_name, conn):
+                try:
+                    if hasattr(conn, 'session'):
+                        if hasattr(conn.session, 'close'):
+                            await asyncio.wait_for(conn.session.close(), timeout=5.0)
+                        elif hasattr(conn.session, '__aexit__'):
+                            await asyncio.wait_for(conn.session.__aexit__(None, None, None), timeout=5.0)
+                except asyncio.TimeoutError:
+                    self.logger.warning(f"Connection cleanup timeout for {conn_name}")
+                except Exception as conn_error:
+                    self.logger.warning(f"Error closing connection {conn_name}: {conn_error}")
+
+            cleanup_tasks.append(cleanup_connection(name, connection))
+
+        if cleanup_tasks:
             try:
-                if hasattr(connection, 'session') and hasattr(connection.session, 'close'):
-                    await connection.session.close()
-            except Exception as conn_error:
-                self.logger.warning(f"Error closing connection {name}: {conn_error}")
+                await asyncio.wait_for(
+                    asyncio.gather(*cleanup_tasks, return_exceptions=True),
+                    timeout=10.0
+                )
+            except asyncio.TimeoutError:
+                self.logger.warning("Individual connection cleanup timed out")
 
         # Force close exit_stack without awaiting if it exists
         if hasattr(self, 'exit_stack') and self.exit_stack:
@@ -1546,8 +1603,13 @@ User Query: {enhanced_query}
                 # Try to close synchronously if possible
                 if hasattr(self.exit_stack, '_exit_stack'):
                     self.exit_stack._exit_stack.clear()
+                # Try alternative cleanup methods
+                if hasattr(self.exit_stack, 'close') and not asyncio.iscoroutinefunction(self.exit_stack.close):
+                    self.exit_stack.close()
             except Exception as e:
                 self.logger.debug(f"Could not clear exit stack: {e}")
+
+        self.logger.info("Fallback cleanup completed")
 
     async def __aenter__(self):
         """Async context manager entry"""

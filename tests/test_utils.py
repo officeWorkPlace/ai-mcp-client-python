@@ -1,18 +1,29 @@
 """
-Tests for utility functions
+Cross-platform tests for utility functions
 """
 
 import pytest
 import tempfile
 import json
+import platform
 from pathlib import Path
 
-from global_mcp_client.utils.validators import InputValidator
-from global_mcp_client.utils.rate_limiter import RateLimiter, TokenBucketRateLimiter
-from global_mcp_client.utils.helpers import (
-    load_json_file, save_json_file, format_duration, format_bytes,
-    safe_get_nested, merge_dicts, validate_environment
-)
+# Add src to path for imports
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
+from mcp_client.utils.validators import InputValidator
+
+try:
+    from mcp_client.utils.rate_limiter import RateLimiter, TokenBucketRateLimiter
+    from mcp_client.utils.helpers import (
+        load_json_file, save_json_file, format_duration, format_bytes,
+        safe_get_nested, merge_dicts, validate_environment
+    )
+    HAS_HELPERS = True
+except ImportError:
+    # Some utilities might not exist in new structure yet
+    HAS_HELPERS = False
 
 
 class TestInputValidator:
@@ -71,27 +82,47 @@ class TestInputValidator:
         for url in invalid_urls:
             assert self.validator.validate_url(url) is False
     
-    def test_file_path_validation(self):
-        """Test file path validation"""
-        valid_paths = [
-            "documents/file.txt",
-            "./local/file.py",
-            "data/output.json",
-        ]
-        
-        invalid_paths = [
-            "../../../etc/passwd",  # Path traversal
-            "/etc/shadow",  # System file
-            "C:\\Windows\\System32\\",  # Windows system
-            "",
-            None,
-        ]
-        
-        for path in valid_paths:
-            assert self.validator.validate_file_path(path) is True
-        
-        for path in invalid_paths:
+    def test_file_path_validation_cross_platform(self, platform_paths):
+        """Test cross-platform file path validation"""
+        # Test platform-specific safe paths
+        for path in platform_paths["safe_paths"]:
+            assert self.validator.validate_file_path(path) is True, f"Safe path should be valid: {path}"
+
+        # Test platform-specific dangerous paths
+        for path in platform_paths["dangerous_paths"]:
+            assert self.validator.validate_file_path(path) is False, f"Dangerous path should be blocked: {path}"
+
+        # Test universal invalid paths
+        universal_invalid = ["", None, ".."]
+        for path in universal_invalid:
             assert self.validator.validate_file_path(path) is False
+
+    def test_file_path_validation_platform_specific(self):
+        """Test platform-specific path validation logic"""
+        current_platform = platform.system()
+
+        if current_platform == "Windows":
+            # Windows-specific tests
+            windows_dangerous = [
+                "C:\\Windows\\System32\\",
+                "C:\\Program Files\\",
+                "C:\\ProgramData\\",
+                "\\Windows\\System32\\"
+            ]
+            for path in windows_dangerous:
+                assert self.validator.validate_file_path(path) is False, f"Windows path should be blocked: {path}"
+
+        elif current_platform in ["Linux", "Darwin"]:
+            # Unix-like systems tests
+            unix_dangerous = [
+                "/etc/passwd",
+                "/bin/sh",
+                "/usr/bin/sudo",
+                "/System/Library/",  # macOS
+                "/private/etc/"       # macOS
+            ]
+            for path in unix_dangerous:
+                assert self.validator.validate_file_path(path) is False, f"Unix path should be blocked: {path}"
     
     def test_input_sanitization(self):
         """Test input sanitization"""

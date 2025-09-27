@@ -3,16 +3,19 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "global-mcp-client"
+name = "mcp-client"
 version = "1.0.0"
-description = "A production-ready MCP client for connecting to multiple MCP servers"
+description = "Production-ready MCP client with AI enhancements - ChatBot, REST API, and WebSocket interfaces"
 readme = "README.md"
 requires-python = ">=3.8"
 license = {text = "MIT"}
 authors = [
-    {name = "Global MCP Client Team", email = "team@globalmcp.com"},
+    {name = "MCP Client Team", email = "team@mcpclient.dev"},
 ]
-keywords = ["mcp", "chatbot", "ai", "tools", "anthropic", "claude"]
+keywords = [
+    "mcp", "model-context-protocol", "chatbot", "ai", "rest-api", "websocket",
+    "anthropic", "openai", "gemini", "claude", "chain-of-thought", "reasoning"
+]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -26,95 +29,183 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Communications :: Chat",
+    "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
+    "Topic :: Internet :: WWW/HTTP :: WSGI :: Application",
 ]
 
 dependencies = [
+    # Core MCP and AI
     "mcp>=1.0.0",
     "anthropic>=0.23.0",
     "openai>=1.0.0",
+    "google-generativeai>=0.8.0",
+
+    # Web Interfaces
     "fastapi>=0.104.0",
-    "uvicorn>=0.24.0",
+    "uvicorn[standard]>=0.24.0",
     "websockets>=12.0",
+    "starlette>=0.27.0",
+
+    # Data and Configuration
     "pydantic>=2.0.0",
-    "aiofiles>=23.0.0",
     "python-dotenv>=1.0.0",
+    "pyyaml>=6.0",
+    "aiofiles>=23.0.0",
+
+    # CLI and UI
     "rich>=13.0.0",
     "click>=8.1.0",
+    "typer>=0.9.0",
+
+    # Async and Performance
     "asyncio-throttle>=1.0.2",
     "tenacity>=8.2.0",
-    "structlog>=23.0.0",
     "nest-asyncio>=1.5.0",
     "httpx>=0.25.0",
-    "jinja2>=3.1.0",
-    "pyyaml>=6.0",
+
+    # Logging and Monitoring
+    "structlog>=23.0.0",
     "psutil>=5.9.0",
+
+    # Templates and Processing
+    "jinja2>=3.1.0",
 ]
 
 [project.optional-dependencies]
+# Development dependencies
 dev = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.1.0",
+    "pytest-mock>=3.11.0",
     "black>=23.0.0",
     "isort>=5.12.0",
-    "flake8>=6.0.0",
+    "ruff>=0.1.0",
     "mypy>=1.5.0",
     "pre-commit>=3.4.0",
+    "coverage>=7.3.0",
 ]
 
+# Testing dependencies
 test = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.1.0",
     "pytest-mock>=3.11.0",
     "coverage>=7.3.0",
+    "httpx>=0.25.0",  # For API testing
 ]
 
+# Documentation dependencies
 docs = [
     "mkdocs>=1.5.0",
     "mkdocs-material>=9.2.0",
-    "mkdocstrings>=0.23.0",
+    "mkdocstrings[python]>=0.23.0",
+    "mkdocs-swagger-ui-tag>=0.6.0",
+]
+
+# Extra AI models support
+ai-extended = [
+    "google-generativeai>=0.8.0",
+    "cohere>=4.0.0",
+    "transformers>=4.30.0",
+]
+
+# Performance optimizations
+performance = [
+    "uvloop>=0.19.0; sys_platform != 'win32'",
+    "orjson>=3.9.0",
+    "aioredis>=2.0.0",
+]
+
+# Security tools and scanning
+security = [
+    "safety>=3.0.0",           # Vulnerability scanning for dependencies
+    "bandit>=1.7.0",           # Security linting for Python code
+    "pip-audit>=2.6.0",        # Dependency security auditing
+    "semgrep>=1.45.0",         # Static security analysis
+    "cryptography>=41.0.0",    # Secure cryptographic operations
 ]
 
 [project.scripts]
-global-mcp-client = "global_mcp_client.main:main"
-gmcp = "global_mcp_client.cli:cli"
+# Main entry points
+mcp-client = "mcp_client.__main__:main"
+mcp = "mcp_client.__main__:main"
+
+# Interface-specific entry points
+mcp-chatbot = "mcp_client.interfaces.chatbot:cli_main"
+mcp-api = "mcp_client.interfaces.rest_api:main"
+mcp-websocket = "mcp_client.interfaces.websocket:main"
+
+# Service entry points
+mcp-coordinator = "mcp_client.services.interface_coordinator:main"
 
 [project.urls]
-Homepage = "https://github.com/yourusername/global-mcp-client"
-Repository = "https://github.com/yourusername/global-mcp-client"
-Documentation = "https://global-mcp-client.readthedocs.io"
-"Bug Reports" = "https://github.com/yourusername/global-mcp-client/issues"
+Homepage = "https://github.com/mcpclient/mcp-client"
+Repository = "https://github.com/mcpclient/mcp-client"
+Documentation = "https://mcp-client.readthedocs.io"
+"Bug Reports" = "https://github.com/mcpclient/mcp-client/issues"
+"Feature Requests" = "https://github.com/mcpclient/mcp-client/discussions"
 
+# Modern setuptools configuration for src layout
 [tool.setuptools.packages.find]
-where = ["."]
-include = ["global_mcp_client*"]
+where = ["src"]
+include = ["mcp_client*"]
 exclude = ["tests*"]
 
+[tool.setuptools.package-dir]
+"" = "src"
+
+# Code formatting with Black
 [tool.black]
 line-length = 88
-target-version = ['py38']
+target-version = ['py38', 'py39', 'py310', 'py311', 'py312']
 include = '\.pyi?$'
 extend-exclude = '''
 /(
-  # directories
   \.eggs
   | \.git
   | \.hg
   | \.mypy_cache
   | \.tox
   | \.venv
+  | _build
+  | buck-out
   | build
   | dist
+  | node_modules
 )/
 '''
 
+# Import sorting with isort
 [tool.isort]
 profile = "black"
 multi_line_output = 3
 line_length = 88
-known_first_party = ["global_mcp_client"]
+known_first_party = ["mcp_client"]
+known_third_party = ["mcp", "anthropic", "openai", "fastapi", "rich"]
+sections = ["FUTURE", "STDLIB", "THIRDPARTY", "FIRSTPARTY", "LOCALFOLDER"]
 
+# Modern linting with Ruff (faster than flake8)
+[tool.ruff]
+target-version = "py38"
+line-length = 88
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear
+    "C4", # flake8-comprehensions
+    "UP", # pyupgrade
+]
+ignore = [
+    "E501",  # line too long, handled by black
+    "B008",  # do not perform function calls in argument defaults
+]
+
+# Type checking with mypy
 [tool.mypy]
 python_version = "3.8"
 warn_return_any = true
@@ -130,28 +221,46 @@ warn_no_return = true
 warn_unreachable = true
 strict_equality = true
 
+# Specific module configurations
+[[tool.mypy.overrides]]
+module = [
+    "mcp.*",
+    "anthropic.*",
+    "openai.*",
+    "google.generativeai.*"
+]
+ignore_missing_imports = true
+
+# Testing with pytest
 [tool.pytest.ini_options]
 minversion = "7.0"
-addopts = "-ra -q --strict-markers --strict-config"
+addopts = "-ra -q --strict-markers --strict-config --cov=mcp_client --cov-report=term-missing"
 testpaths = ["tests"]
 filterwarnings = [
     "error",
     "ignore::UserWarning",
     "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
 ]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests as integration tests",
     "unit: marks tests as unit tests",
+    "api: marks tests as API interface tests",
+    "websocket: marks tests as WebSocket interface tests",
+    "chatbot: marks tests as chatbot interface tests",
+    "ai: marks tests as AI enhancement tests",
 ]
 asyncio_mode = "auto"
 
+# Coverage configuration
 [tool.coverage.run]
-source = ["global_mcp_client"]
+source = ["src/mcp_client"]
 omit = [
     "*/tests/*",
     "*/test_*",
     "setup.py",
+    "src/mcp_client/__main__.py",
 ]
 
 [tool.coverage.report]
@@ -167,3 +276,81 @@ exclude_lines = [
     "class .*\\bProtocol\\):",
     "@(abc\\.)?abstractmethod",
 ]
+show_missing = true
+precision = 2
+
+[tool.coverage.html]
+directory = "htmlcov"
+
+# Security scanning with bandit
+[tool.bandit]
+exclude_dirs = ["tests", "htmlcov", ".venv", "venv", "build", "dist"]
+skips = [
+    "B101",  # assert_used - asserts are ok in tests
+    "B601",  # paramiko_calls - we don't use paramiko
+]
+# Security rules to enforce
+tests = [
+    "B201",  # flask_debug_true
+    "B301",  # pickle_load
+    "B302",  # marshal_load
+    "B303",  # md5_insecure
+    "B304",  # des_insecure
+    "B305",  # cipher_insecure
+    "B306",  # mktemp_q
+    "B307",  # eval_used
+    "B308",  # mark_safe_used
+    "B309",  # httpsconnection_attribute
+    "B310",  # urllib_urlopen
+    "B311",  # random_module
+    "B312",  # telnetlib_used
+    "B313",  # xml_etree_usage
+    "B314",  # xml_sax_usage
+    "B315",  # xml_expat_usage
+    "B316",  # xml_xmlrpc_usage
+    "B317",  # xml_bad_cElementTree
+    "B318",  # xml_bad_ElementTree
+    "B319",  # xml_bad_XMLParser
+    "B320",  # xml_bad_XMLParseColumns
+    "B321",  # ftplib_used
+    "B322",  # input_used
+    "B323",  # unverified_context
+    "B324",  # hashlib_insecure
+    "B501",  # request_with_no_cert_validation
+    "B502",  # ssl_with_bad_version
+    "B503",  # ssl_with_bad_defaults
+    "B504",  # ssl_with_no_version
+    "B505",  # weak_cryptographic_key
+    "B506",  # yaml_load
+    "B507",  # ssh_no_host_key_verification
+    "B601",  # paramiko_calls
+    "B602",  # subprocess_popen_with_shell_equals_true
+    "B603",  # subprocess_without_shell_equals_true
+    "B604",  # any_other_function_with_shell_equals_true
+    "B605",  # start_process_with_a_shell
+    "B606",  # start_process_with_no_shell
+    "B607",  # start_process_with_partial_path
+    "B608",  # hardcoded_sql_expressions
+    "B609",  # linux_commands_wildcard_injection
+    "B610",  # django_extra_used
+    "B611",  # django_rawsql_used
+    "B701",  # jinja2_autoescape_false
+    "B702",  # use_of_mako_templates
+    "B703",  # django_mark_safe
+]
+
+# Safety configuration for vulnerability scanning
+[tool.safety]
+# Ignore specific vulnerabilities (add IDs as needed)
+ignore = []
+# Set minimum severity level
+output = "json"
+
+# Pip-audit configuration
+[tool.pip-audit]
+# Require hashes in requirements files
+require-hashes = false
+# Vulnerability database
+vuln-db = "pyup"
+# Output format
+output = "json"

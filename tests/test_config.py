@@ -1,13 +1,18 @@
 """
-Tests for configuration management
+Cross-platform tests for configuration management
 """
 
 import pytest
 import tempfile
 import json
+import platform
 from pathlib import Path
 
-from global_mcp_client.core.config import Config, MCPServerConfig, GlobalSettings
+# Add src to path for imports
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
+from mcp_client.core.config import Config, MCPServerConfig, GlobalSettings
 
 
 class TestConfig:
@@ -51,6 +56,7 @@ class TestConfig:
         # Remove API keys to create validation issues
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
 
         # Use temp directory to avoid loading .env file
         monkeypatch.chdir(tmp_path)

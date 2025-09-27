@@ -29,6 +29,21 @@ from .exceptions import (
 )
 from .logger import LoggerMixin
 
+# Enhanced AI capabilities imports
+try:
+    from global_mcp_client.enhancements.context.context_manager import IntelligentContextManager
+    from global_mcp_client.enhancements.reasoning.cot_engine import ChainOfThoughtEngine
+    from global_mcp_client.enhancements.quality.response_optimizer import ResponseQualityOptimizer
+    from global_mcp_client.enhancements.monitoring.performance_tracker import PerformanceTracker
+    ENHANCEMENTS_AVAILABLE = True
+except ImportError as e:
+    # Graceful degradation if enhancements are not available
+    IntelligentContextManager = None
+    ChainOfThoughtEngine = None
+    ResponseQualityOptimizer = None
+    PerformanceTracker = None
+    ENHANCEMENTS_AVAILABLE = False
+
 
 class MCPServerConnection:
     """Represents a connection to a single MCP server"""
@@ -77,7 +92,284 @@ class GlobalMCPClient(LoggerMixin):
             self.logger.error(error_msg)
             raise ValueError(error_msg)
 
+        # Initialize Enhancement Components
+        self._initialize_enhancements()
+
         self.logger.info("Global MCP Client initialized successfully")
+
+    def _initialize_enhancements(self) -> None:
+        """Initialize enhancement components based on configuration"""
+        self.enhancement_components = {}
+
+        if not ENHANCEMENTS_AVAILABLE:
+            self.logger.warning("AI enhancements are not available - running in basic mode")
+            return
+
+        # Initialize Intelligent Context Manager
+        if self.config.enable_intelligent_context and IntelligentContextManager:
+            try:
+                self.enhancement_components['context_manager'] = IntelligentContextManager(self.config)
+                self.logger.info("IntelligentContextManager initialized")
+            except Exception as e:
+                self.logger.error(f"Failed to initialize IntelligentContextManager: {e}")
+
+        # Initialize Chain-of-Thought Engine
+        if self.config.enable_chain_of_thought and ChainOfThoughtEngine:
+            try:
+                self.enhancement_components['cot_engine'] = ChainOfThoughtEngine(self.config)
+                self.logger.info("ChainOfThoughtEngine initialized")
+            except Exception as e:
+                self.logger.error(f"Failed to initialize ChainOfThoughtEngine: {e}")
+
+        # Initialize Response Quality Optimizer
+        if self.config.enable_quality_optimization and ResponseQualityOptimizer:
+            try:
+                self.enhancement_components['quality_optimizer'] = ResponseQualityOptimizer(self.config)
+                self.logger.info("ResponseQualityOptimizer initialized")
+            except Exception as e:
+                self.logger.error(f"Failed to initialize ResponseQualityOptimizer: {e}")
+
+        # Initialize Performance Tracker
+        if self.config.enable_performance_tracking and PerformanceTracker:
+            try:
+                self.enhancement_components['performance_tracker'] = PerformanceTracker(self.config)
+                self.logger.info("PerformanceTracker initialized")
+            except Exception as e:
+                self.logger.error(f"Failed to initialize PerformanceTracker: {e}")
+
+        self.logger.info(f"Enhancement components initialized: {list(self.enhancement_components.keys())}")
+
+    async def _enhance_query_processing(self, query: str, provider: str) -> Tuple[str, Dict[str, Any]]:
+        """
+        Enhanced query processing with context optimization and reasoning
+
+        Args:
+            query: User query
+            provider: AI provider being used
+
+        Returns:
+            Tuple of (enhanced_query, processing_context)
+        """
+        processing_context = {
+            "original_query": query,
+            "provider": provider,
+            "available_tools": self.available_tools,
+            "enhancement_used": False,
+            "reasoning_result": None,
+            "context_optimization": None
+        }
+
+        enhanced_query = query
+
+        # Step 1: Context Management Enhancement
+        context_manager = self.enhancement_components.get('context_manager')
+        if context_manager:
+            context_start_time = time.time()
+            try:
+                # Add current message to context
+                context_manager.add_message("user", query)
+
+                # Optimize context for this query
+                context_optimization = context_manager.optimize_context_for_query(query, self.available_tools)
+                processing_context["context_optimization"] = context_optimization
+                processing_context["enhancement_used"] = True
+
+                # Update available tools based on optimization
+                if context_optimization.priority_tools:
+                    processing_context["available_tools"] = context_optimization.priority_tools
+
+                # Track performance
+                context_execution_time = time.time() - context_start_time
+                performance_tracker = self.enhancement_components.get('performance_tracker')
+                if performance_tracker:
+                    performance_tracker.track_context_optimization(context_optimization, context_execution_time)
+
+                self.logger.debug("Context optimized for query", extra={
+                    "compression_ratio": context_optimization.utilization_stats.get("compression_ratio", 0),
+                    "optimized_message_count": len(context_optimization.optimized_messages),
+                    "execution_time": context_execution_time
+                })
+
+            except Exception as e:
+                context_execution_time = time.time() - context_start_time
+                performance_tracker = self.enhancement_components.get('performance_tracker')
+                if performance_tracker:
+                    performance_tracker.track_operation("context_manager", "optimize_context", context_execution_time, success=False)
+                self.logger.error(f"Context optimization failed: {e}")
+
+        # Step 2: Chain-of-Thought Enhancement
+        cot_engine = self.enhancement_components.get('cot_engine')
+        if cot_engine:
+            reasoning_start_time = time.time()
+            try:
+                enhanced_query, reasoning_result = cot_engine.enhance_query_with_reasoning(query, processing_context)
+                processing_context["reasoning_result"] = reasoning_result
+                processing_context["enhancement_used"] = True
+
+                # Track performance
+                reasoning_execution_time = time.time() - reasoning_start_time
+                performance_tracker = self.enhancement_components.get('performance_tracker')
+                if performance_tracker:
+                    performance_tracker.track_reasoning_enhancement(reasoning_result, reasoning_execution_time)
+
+                self.logger.debug("Query enhanced with reasoning", extra={
+                    "reasoning_type": reasoning_result.reasoning_type.value,
+                    "original_length": len(query),
+                    "enhanced_length": len(enhanced_query),
+                    "execution_time": reasoning_execution_time
+                })
+
+            except Exception as e:
+                reasoning_execution_time = time.time() - reasoning_start_time
+                performance_tracker = self.enhancement_components.get('performance_tracker')
+                if performance_tracker:
+                    performance_tracker.track_operation("cot_engine", "enhance_reasoning", reasoning_execution_time, success=False)
+                self.logger.error(f"Chain-of-thought enhancement failed: {e}")
+
+        return enhanced_query, processing_context
+
+    async def _enhance_response_quality(self, response: str, query: str, context: Dict[str, Any]) -> str:
+        """
+        Enhance response quality using the quality optimizer
+
+        Args:
+            response: Original AI response
+            query: Original user query
+            context: Processing context from query enhancement
+
+        Returns:
+            Enhanced response
+        """
+        quality_optimizer = self.enhancement_components.get('quality_optimizer')
+        if not quality_optimizer:
+            return response
+
+        quality_start_time = time.time()
+        try:
+            # Prepare context for quality optimization
+            quality_context = {
+                "tool_results": context.get("tool_results", []),
+                "reasoning_trace": context.get("reasoning_result"),
+                "context_optimization": context.get("context_optimization"),
+                "available_tools": context.get("available_tools", [])
+            }
+
+            # Optimize response quality
+            enhancement_result = quality_optimizer.optimize_response(response, query, quality_context)
+
+            # Extract reasoning from response if we have a reasoning result
+            if context.get("reasoning_result") and enhancement_result.enhanced_response:
+                cot_engine = self.enhancement_components.get('cot_engine')
+                if cot_engine:
+                    context["reasoning_result"] = cot_engine.extract_reasoning_from_response(
+                        enhancement_result.enhanced_response,
+                        context["reasoning_result"]
+                    )
+
+            # Track performance
+            quality_execution_time = time.time() - quality_start_time
+            performance_tracker = self.enhancement_components.get('performance_tracker')
+            if performance_tracker:
+                performance_tracker.track_quality_optimization(enhancement_result, quality_execution_time)
+
+            self.logger.info("Response quality enhanced", extra={
+                "before_score": enhancement_result.before_assessment.overall_score,
+                "after_score": enhancement_result.after_assessment.overall_score,
+                "improvements_made": len(enhancement_result.quality_improvements),
+                "execution_time": quality_execution_time
+            })
+
+            return enhancement_result.enhanced_response
+
+        except Exception as e:
+            quality_execution_time = time.time() - quality_start_time
+            performance_tracker = self.enhancement_components.get('performance_tracker')
+            if performance_tracker:
+                performance_tracker.track_operation("quality_optimizer", "optimize_response", quality_execution_time, success=False)
+            self.logger.error(f"Response quality enhancement failed: {e}")
+            return response
+
+    def _update_conversation_context(self, query: str, response: str, tool_calls: List = None, tool_results: List = None) -> None:
+        """Update conversation context with enhanced tracking"""
+        # Add to basic conversation context (maintain backward compatibility)
+        self._conversation_context.append({
+            "role": "user",
+            "content": query,
+            "timestamp": time.time()
+        })
+
+        self._conversation_context.append({
+            "role": "assistant",
+            "content": response,
+            "timestamp": time.time(),
+            "tool_calls": tool_calls or [],
+            "tool_results": tool_results or []
+        })
+
+        # Enhanced context tracking
+        context_manager = self.enhancement_components.get('context_manager')
+        if context_manager:
+            try:
+                context_manager.add_message("assistant", response, tool_calls, tool_results)
+            except Exception as e:
+                self.logger.error(f"Enhanced context tracking failed: {e}")
+
+    def get_performance_report(self, time_period: str = "session") -> Optional[Dict[str, Any]]:
+        """
+        Get comprehensive performance report from the performance tracker
+
+        Args:
+            time_period: Time period for the report ("session", "hour", "day")
+
+        Returns:
+            Performance report dictionary or None if tracking is disabled
+        """
+        performance_tracker = self.enhancement_components.get('performance_tracker')
+        if not performance_tracker:
+            return None
+
+        try:
+            report = performance_tracker.generate_performance_report(time_period)
+            return {
+                "report_timestamp": report.report_timestamp,
+                "time_period": report.time_period,
+                "overall_performance": report.overall_performance,
+                "component_performances": {
+                    name: {
+                        "component_name": perf.component_name,
+                        "total_operations": perf.total_operations,
+                        "success_rate": perf.success_rate,
+                        "average_execution_time": perf.average_execution_time,
+                        "average_quality_score": perf.average_quality_score,
+                        "error_rate": perf.error_rate,
+                        "efficiency_score": perf.efficiency_score
+                    }
+                    for name, perf in report.component_performances.items()
+                },
+                "trends": report.trends,
+                "recommendations": report.recommendations,
+                "alerts": report.alerts
+            }
+        except Exception as e:
+            self.logger.error(f"Failed to generate performance report: {e}")
+            return None
+
+    def get_performance_summary(self) -> Optional[Dict[str, Any]]:
+        """
+        Get quick performance summary
+
+        Returns:
+            Performance summary dictionary or None if tracking is disabled
+        """
+        performance_tracker = self.enhancement_components.get('performance_tracker')
+        if not performance_tracker:
+            return None
+
+        try:
+            return performance_tracker.get_performance_summary()
+        except Exception as e:
+            self.logger.error(f"Failed to get performance summary: {e}")
+            return None
 
     @property
     def ai_client(self) -> Union[Anthropic, openai.OpenAI, genai.GenerativeModel]:
@@ -331,7 +623,7 @@ class GlobalMCPClient(LoggerMixin):
 
     async def process_query_with_anthropic(self, query: str) -> str:
         """
-        Process a query using Anthropic's Claude
+        Process a query using Anthropic's Claude with enhanced AI capabilities
 
         Args:
             query: User query
@@ -339,19 +631,27 @@ class GlobalMCPClient(LoggerMixin):
         Returns:
             AI response
         """
-        messages = [{"role": "user", "content": query}]
+        # Enhanced query processing
+        enhanced_query, processing_context = await self._enhance_query_processing(query, "anthropic")
+
+        # Use optimized tools if available
+        tools_to_use = processing_context.get("available_tools", self.available_tools)
+
+        messages = [{"role": "user", "content": enhanced_query}]
 
         try:
             response = self.ai_client.messages.create(
                 max_tokens=self.config.max_tokens,
                 model=self.config.default_model,
-                tools=self.available_tools,
+                tools=tools_to_use,
                 messages=messages,
                 temperature=self.config.temperature,
             )
 
             process_query = True
             final_response = ""
+            tool_calls_made = []
+            tool_results_obtained = []
 
             while process_query:
                 assistant_content = []
@@ -381,6 +681,18 @@ class GlobalMCPClient(LoggerMixin):
                         try:
                             result = await self.call_tool(tool_name, tool_args)
 
+                            # Track tool usage for enhancements
+                            tool_calls_made.append({
+                                "tool_name": tool_name,
+                                "tool_args": tool_args,
+                                "tool_id": tool_id
+                            })
+                            tool_results_obtained.append({
+                                "tool_name": tool_name,
+                                "result": result,
+                                "tool_id": tool_id
+                            })
+
                             messages.append(
                                 {
                                     "role": "user",
@@ -398,7 +710,7 @@ class GlobalMCPClient(LoggerMixin):
                             response = self.ai_client.messages.create(
                                 max_tokens=self.config.max_tokens,
                                 model=self.config.default_model,
-                                tools=self.available_tools,
+                                tools=tools_to_use,
                                 messages=messages,
                                 temperature=self.config.temperature,
                             )
@@ -431,12 +743,19 @@ class GlobalMCPClient(LoggerMixin):
                             response = self.ai_client.messages.create(
                                 max_tokens=self.config.max_tokens,
                                 model=self.config.default_model,
-                                tools=self.available_tools,
+                                tools=tools_to_use,
                                 messages=messages,
                                 temperature=self.config.temperature,
                             )
 
-            return final_response
+            # Enhanced response quality optimization
+            processing_context["tool_results"] = tool_results_obtained
+            enhanced_response = await self._enhance_response_quality(final_response, query, processing_context)
+
+            # Update conversation context with enhanced tracking
+            self._update_conversation_context(query, enhanced_response, tool_calls_made, tool_results_obtained)
+
+            return enhanced_response
 
         except Exception as e:
             error_msg = f"AI query processing failed: {str(e)}"
@@ -704,7 +1023,7 @@ class GlobalMCPClient(LoggerMixin):
     
     async def process_query_with_gemini(self, query: str) -> str:
         """
-        Process a query using Google Gemini (following Anthropic/OpenAI pattern)
+        Process a query using Google Gemini with enhanced AI capabilities
 
         Args:
             query: User query
@@ -712,14 +1031,20 @@ class GlobalMCPClient(LoggerMixin):
         Returns:
             AI response
         """
+        # Enhanced query processing
+        enhanced_query, processing_context = await self._enhance_query_processing(query, "gemini")
+
+        # Use optimized tools if available
+        tools_to_use = processing_context.get("available_tools", self.available_tools)
+        # Filter tools to avoid overwhelming Gemini (max 50 tools)
+        if len(tools_to_use) > 50:
+            tools_to_use = tools_to_use[:50]
+
         try:
             model = self.ai_client
 
             # Convert MCP tools to Gemini function calling format with filtering
             function_declarations = []
-            
-            # Filter tools to avoid overwhelming Gemini (max 50 tools)
-            tools_to_use = self.available_tools[:50] if len(self.available_tools) > 50 else self.available_tools
             
             for tool in tools_to_use:
                 try:
@@ -808,9 +1133,9 @@ IMPORTANT INSTRUCTIONS:
                         self.logger.warning(f"Failed to send system message: {e}")
                 
                 try:
-                    # Send user query with conversation context
+                    # Send enhanced user query with conversation context
                     response = self._gemini_chat.send_message(
-                        query,
+                        enhanced_query,
                         tools=tools,
                         generation_config=genai.types.GenerationConfig(
                             temperature=self.config.temperature,
@@ -831,7 +1156,7 @@ IMPORTANT INSTRUCTIONS:
                         try:
                             self._gemini_chat = model.start_chat()
                             response = self._gemini_chat.send_message(
-                                f"{system_context}\n\nUser Query: {query}",
+                                f"{system_context}\n\nUser Query: {enhanced_query}",
                                 tools=simple_tools,
                                 generation_config=genai.types.GenerationConfig(
                                     temperature=self.config.temperature,
@@ -843,7 +1168,7 @@ IMPORTANT INSTRUCTIONS:
                             self.logger.warning(f"Retry with simple tools also failed: {retry_error}")
                             # Fall back to text-only
                             self._gemini_chat = None
-                            context_query = f"{system_context}\n\nUser Query: {query}"
+                            context_query = f"{system_context}\n\nUser Query: {enhanced_query}"
                             response = model.generate_content(
                                 context_query,
                                 generation_config=genai.types.GenerationConfig(
@@ -855,7 +1180,7 @@ IMPORTANT INSTRUCTIONS:
                     else:
                         # For other errors, fall back to text-only immediately
                         self._gemini_chat = None
-                        context_query = f"{system_context}\n\nUser Query: {query}"
+                        context_query = f"{system_context}\n\nUser Query: {enhanced_query}"
                         response = model.generate_content(
                             context_query,
                             generation_config=genai.types.GenerationConfig(
@@ -947,7 +1272,25 @@ IMPORTANT INSTRUCTIONS:
                         )
                     )
 
-                return final_response
+                # Track tool usage for enhancements
+                tool_calls_made = []
+                tool_results_obtained = []
+                for part in response.candidates[0].content.parts if response.candidates else []:
+                    if hasattr(part, 'function_call') and part.function_call:
+                        tool_calls_made.append({
+                            "tool_name": part.function_call.name,
+                            "tool_args": dict(part.function_call.args) if part.function_call.args else {},
+                            "tool_id": getattr(part.function_call, 'id', 'gemini_call')
+                        })
+
+                # Enhanced response quality optimization
+                processing_context["tool_results"] = tool_results_obtained
+                enhanced_response = await self._enhance_response_quality(final_response, query, processing_context)
+
+                # Update conversation context with enhanced tracking
+                self._update_conversation_context(query, enhanced_response, tool_calls_made, tool_results_obtained)
+
+                return enhanced_response
 
             else:
                 # No tools available, but still provide context
@@ -975,13 +1318,21 @@ Please acknowledge that you understand your role.
                 
                 try:
                     response = self._gemini_chat.send_message(
-                        query,
+                        enhanced_query,
                         generation_config=genai.types.GenerationConfig(
                             temperature=self.config.temperature,
                             max_output_tokens=self.config.max_tokens,
                         )
                     )
-                    return response.text
+
+                    # Enhanced response quality optimization (no tools case)
+                    processing_context["tool_results"] = []
+                    enhanced_response = await self._enhance_response_quality(response.text, query, processing_context)
+
+                    # Update conversation context with enhanced tracking
+                    self._update_conversation_context(query, enhanced_response, [], [])
+
+                    return enhanced_response
                 except Exception as e:
                     self.logger.warning(f"Chat session failed, using direct generation: {e}")
                     # Final fallback
@@ -991,7 +1342,7 @@ You are an AI assistant integrated with a Model Context Protocol (MCP) client.
 Currently connected to {server_info['total_servers']} MCP servers: {', '.join(server_info['connected_servers'])}
 No tools are currently available.
 
-User Query: {query}
+User Query: {enhanced_query}
 """
                     response = model.generate_content(
                         context_query,
@@ -1000,7 +1351,15 @@ User Query: {query}
                             max_output_tokens=self.config.max_tokens,
                         )
                     )
-                    return response.text
+
+                    # Enhanced response quality optimization (fallback case)
+                    processing_context["tool_results"] = []
+                    enhanced_response = await self._enhance_response_quality(response.text, query, processing_context)
+
+                    # Update conversation context with enhanced tracking
+                    self._update_conversation_context(query, enhanced_response, [], [])
+
+                    return enhanced_response
 
         except Exception as e:
             error_msg = f"AI query processing failed: {str(e)}"
@@ -1097,37 +1456,56 @@ User Query: {query}
         }
 
     async def cleanup(self) -> None:
-        """Clean up all resources"""
+        """Clean up all resources with robust error handling"""
         self.logger.info("Cleaning up Global MCP Client...")
 
         try:
             # Close all connections with proper error handling
             if hasattr(self, 'exit_stack') and self.exit_stack:
                 await self.exit_stack.aclose()
+        except RuntimeError as e:
+            if "cancel scope" in str(e) or "different task" in str(e):
+                # This is the asyncio context issue - try alternative cleanup
+                self.logger.debug(f"Asyncio context issue during exit_stack cleanup, using fallback: {e}")
+                await self._fallback_cleanup()
+            else:
+                raise
         except Exception as e:
             # Log cleanup errors but don't crash
             self.logger.warning(f"Error during connection cleanup: {e}")
-            
-            # Try individual connection cleanup as fallback
-            for name, connection in self.connections.items():
-                try:
-                    if hasattr(connection.session, 'close'):
-                        await connection.session.close()
-                except Exception as conn_error:
-                    self.logger.warning(f"Error closing connection {name}: {conn_error}")
+            await self._fallback_cleanup()
 
         # Clear state
         self.connections.clear()
         self.tool_to_server.clear()
         self.available_tools.clear()
         self.is_initialized = False
-        
+
         # Reset conversation state
         self._gemini_chat = None
         if hasattr(self, '_conversation_context'):
             self._conversation_context.clear()
 
         self.logger.info("Cleanup completed")
+
+    async def _fallback_cleanup(self) -> None:
+        """Fallback cleanup method for when exit_stack fails"""
+        # Try individual connection cleanup as fallback
+        for name, connection in self.connections.items():
+            try:
+                if hasattr(connection, 'session') and hasattr(connection.session, 'close'):
+                    await connection.session.close()
+            except Exception as conn_error:
+                self.logger.warning(f"Error closing connection {name}: {conn_error}")
+
+        # Force close exit_stack without awaiting if it exists
+        if hasattr(self, 'exit_stack') and self.exit_stack:
+            try:
+                # Try to close synchronously if possible
+                if hasattr(self.exit_stack, '_exit_stack'):
+                    self.exit_stack._exit_stack.clear()
+            except Exception as e:
+                self.logger.debug(f"Could not clear exit stack: {e}")
 
     async def __aenter__(self):
         """Async context manager entry"""
